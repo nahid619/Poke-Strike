@@ -266,11 +266,13 @@ let look = { x: 0, y: 0 };
 let fovKick = 0;
 let orbit = 0;
 let adsVis = 0;         // smoothed zoom amount for drawing (0..1)
+let levelVis = 1;       // smoothed magnification of the zoom level (2.5x <-> 5x glides)
 let adsWeapon = null;   // the weapon that zoom belongs to
 const camKick = { p: 0, y: 0, who: null }; // smoothed recoil on the camera
 let buyOpen = false;
-let lastZoomIn = false;
+let lastZoomIn = 0; // 0 = not zoomed, 1 = first level, 2 = second level
 const scopeEl = document.getElementById('scope');
+const zoomLabel = scopeEl?.querySelector('.zl');
 const blindEl = document.getElementById('fx-blind');
 
 /** The buy menu: press B (pre-round in a match, any time in the test range). */
@@ -363,26 +365,34 @@ function frame(now) {
   if (adsWeapon !== def || !player.alive) {
     adsWeapon = def;
     adsVis = L.adsAmount;
+    levelVis = L.zoomLevelValue;
   }
   if (def.ads) {
     const rate = (dt / def.ads.time) * 1.6;
     const diff = L.adsAmount - adsVis;
-    adsVis += Math.sign(diff) * Math.min(Math.abs(diff), rate);
+    // Being kicked out of the scope (a sniper shot) is instant, like Valorant.
+    if (diff < -0.5) adsVis = L.adsAmount;
+    else adsVis += Math.sign(diff) * Math.min(Math.abs(diff), rate);
+    levelVis += (L.zoomLevelValue - levelVis) * (1 - Math.exp(-dt * 18));
   } else {
     adsVis = 0;
   }
   // Click when zooming in or out (only for the body you control).
-  const zoomingIn = !!def.ads && L.ads && player === me;
-  if (zoomingIn !== lastZoomIn) {
-    if (def.ads && running && player === me) sound.scope(zoomingIn);
-    lastZoomIn = zoomingIn;
+  const zoomState = def.ads && L.ads && player === me ? L.zoomLevel + 1 : 0;
+  if (zoomState !== lastZoomIn) {
+    if (def.ads && running && player === me) sound.scope(zoomState > lastZoomIn);
+    lastZoomIn = zoomState;
   }
   const easedZoom = 1 - (1 - adsVis) * (1 - adsVis);
-  const zoom = def.ads ? 1 + (def.ads.zoom - 1) * easedZoom : 1;
+  const zoom = def.ads ? 1 + (levelVis - 1) * easedZoom : 1;
   human.zoom = zoom;
   const sniperScope = def.ads?.scope === 'sniper' && adsVis > 0.85 && player.alive && (running || state === 'paused');
   document.body.classList.toggle('scoped', sniperScope);
-  if (scopeEl) scopeEl.style.opacity = sniperScope ? String(Math.min(1, (adsVis - 0.85) / 0.15)) : '0';
+  if (scopeEl) {
+    scopeEl.style.opacity = sniperScope ? String(Math.min(1, (adsVis - 0.85) / 0.15)) : '0';
+    const label = `${L.zoomLevelValue}x`;
+    if (sniperScope && zoomLabel && zoomLabel.textContent !== label) zoomLabel.textContent = label;
+  }
 
   // Dashes widen the FOV for a moment.
   const kickTarget = player.dash ? 8 : 0;

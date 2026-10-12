@@ -444,12 +444,16 @@ export class Character {
     const k = this.bodyScale;
     if (parts.body && parts.lastScale !== k) {
       parts.lastScale = k;
-      parts.body.scale.y = k;
-      parts.body.position.y = (HITBOX.bodyTop / 2) * k;
+      for (const m of [parts.body, parts.rb]) {
+        m.scale.y = k;
+        m.position.y = TORSO_Y * k;
+      }
+      for (const m of parts.legs) {
+        m.scale.y = k;
+        m.position.y = (HITBOX.legsTop / 2) * k;
+      }
       parts.head.position.y = HITBOX.headY * k;
       parts.visor.position.y = (HITBOX.headY + 0.02) * k;
-      parts.rb.scale.y = k;
-      parts.rb.position.y = parts.body.position.y;
       parts.rh.position.y = parts.head.position.y;
     }
     parts.reveal.visible = this.alive && this.revealed;
@@ -488,7 +492,13 @@ function accelerate(vel, wx, wz, wishSpeed, accel, dt, cap = Infinity) {
 // which way the character faces. Plus status indicators: a see-through-walls
 // outline (revealed), a spinning ring (stunned), and a "Zz" (asleep).
 // ---------------------------------------------------------------------------
-const bodyGeometry = new THREE.CapsuleGeometry(HITBOX.bodyR, HITBOX.bodyTop - HITBOX.bodyR * 2, 4, 12);
+// The torso covers exactly the body hitbox (hips to shoulders) and two legs
+// cover the leg hitbox below it, so what looks like a body shot is one.
+const TORSO_Y = (HITBOX.legsTop + HITBOX.bodyTop) / 2 + 0.02;
+const bodyGeometry = new THREE.CapsuleGeometry(0.27, 0.12, 4, 12);
+const legGeometry = new THREE.CylinderGeometry(0.11, 0.09, HITBOX.legsTop, 10);
+const LEG_X = 0.13;
+const legMaterials = {};
 const headGeometry = new THREE.SphereGeometry(HITBOX.headR, 16, 12);
 const visorGeometry = new THREE.BoxGeometry(0.26, 0.08, 0.1);
 const visorMaterial = new THREE.MeshStandardMaterial({ color: 0x1b1f2a, roughness: 0.3 });
@@ -523,9 +533,22 @@ function buildBody(c) {
   }));
 
   const body = new THREE.Mesh(bodyGeometry, material);
-  body.position.y = HITBOX.bodyTop / 2;
+  body.position.y = TORSO_Y;
   body.castShadow = true;
   group.add(body);
+
+  // Legs: a darker shade of the team color.
+  const legMaterial = (legMaterials[c.team] ??= new THREE.MeshStandardMaterial({
+    color: new THREE.Color(TEAM_COLORS[c.team] ?? 0xaaaaaa).multiplyScalar(0.55),
+    roughness: 0.7,
+  }));
+  const legs = [-LEG_X, LEG_X].map((x) => {
+    const leg = new THREE.Mesh(legGeometry, legMaterial);
+    leg.position.set(x, HITBOX.legsTop / 2, 0);
+    leg.castShadow = true;
+    group.add(leg);
+    return leg;
+  });
 
   const head = new THREE.Mesh(headGeometry, material);
   head.position.y = HITBOX.headY;
@@ -542,8 +565,13 @@ function buildBody(c) {
   rb.position.y = body.position.y;
   const rh = new THREE.Mesh(headGeometry, revealMaterial);
   rh.position.y = head.position.y;
-  for (const m of [rb, rh]) m.renderOrder = 999;
-  reveal.add(rb, rh);
+  const rl = legs.map((leg) => {
+    const m = new THREE.Mesh(legGeometry, revealMaterial);
+    m.position.copy(leg.position);
+    return m;
+  });
+  for (const m of [rb, rh, ...rl]) m.renderOrder = 999;
+  reveal.add(rb, rh, ...rl);
   reveal.visible = false;
   group.add(reveal);
 
@@ -565,6 +593,6 @@ function buildBody(c) {
   sleepIcon.visible = false;
   group.add(sleepIcon);
 
-  group.userData = { reveal, stunRing, sleepIcon, body, head, visor, rb, rh, lastScale: 1 };
+  group.userData = { reveal, stunRing, sleepIcon, body, head, visor, rb, rh, legs: [...legs, ...rl], lastScale: 1 };
   return group;
 }

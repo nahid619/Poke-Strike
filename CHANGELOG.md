@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.1
+
+Sniper scope and body shots, matched to Valorant's Operator and Vandal.
+
+- **Dual-zoom sniper scope.** Right click for 2.5x, again for 5x, and once more to zoom out,
+  like the Operator. The view glides between the two levels, the scope shows the current zoom,
+  and mouse sensitivity scales with each level. You stay scoped between shots.
+- **Operator numbers.** 255 head, 150 body, 120 legs. It fires 0.6 a second from the hip and
+  0.75 a second scoped, and you run at 5.13 m/s while holding it.
+- **Body shots look like body shots.** Characters had one tall capsule, so the bottom half of
+  what looked like the body was really the leg hitbox (a sniper "body shot" there did 127 and
+  didn't kill). Characters now have a torso over the body hitbox and two darker legs over the
+  leg hitbox, so you can see exactly where body ends and legs begin.
+- **Rifle zoom matches the Vandal.** First-shot spread is 0.25 degrees from the hip and 0.157
+  zoomed (1.25x, 8.8 rounds a second).
+- **Bots** with a sniper scope to 2.5x and shoot at the new fire rate.
+
 ## 1.1.0
 
 Gunplay rebuilt to feel like Valorant, a new sniper, and new agent utility.

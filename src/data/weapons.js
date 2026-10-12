@@ -16,7 +16,9 @@
 //                     the crosshair and you pull down to control them.
 //          punch      camera-only kick per shot (degrees), springs back fast
 // ads:     right click aims down sights (or scopes). zoom is the
-//          magnification, time the seconds to zoom in, and the multipliers
+//          magnification (zoomLevels: right click again for the next level,
+//          like the Operator's 2.5x then 5x), time the seconds to zoom in,
+//          unscopeOnFire kicks you out of the scope after each shot, and the multipliers
 //          apply while fully zoomed. `spread` replaces the hip-fire values
 //          while zoomed (blended during the zoom). scope 'sight' keeps the gun
 //          on screen; 'sniper' shows a full scope overlay.
@@ -35,7 +37,7 @@ export const WEAPONS = {
     moveMult: 1,
     damage: { head: 160, body: 40, legs: 34 },
     falloff: [], // full damage at every range
-    spread: { base: 0.2, run: 5.0, air: 10, perShot: 0.24, firstAccurateShots: 2, maxSpray: 2.8 },
+    spread: { base: 0.25, run: 5.0, air: 10, perShot: 0.24, firstAccurateShots: 2, maxSpray: 2.8 },
     recoil: {
       vertical: [0.15, 0.35, 0.65, 0.9, 1.0, 1.0, 0.85, 0.7, 0.5, 0.4, 0.3],
       jitter: 0.1,
@@ -49,8 +51,9 @@ export const WEAPONS = {
       punch: 0.12,
     },
     ads: {
+      // Vandal: 1.25x, first shot 0.25 -> 0.157 degrees, 9.75 -> 8.775 rounds a second.
       zoom: 1.25, time: 0.16, scope: 'sight',
-      spreadMult: 0.75, recoilMult: 0.85, fireRateMult: 0.9, moveMult: 0.76,
+      spreadMult: 0.628, recoilMult: 0.85, fireRateMult: 0.9, moveMult: 0.76,
     },
     viewKick: 0.03,
   },
@@ -60,13 +63,13 @@ export const WEAPONS = {
     name: 'Sniper',
     slot: 'primary',
     mode: 'semi',
-    rpm: 45,
+    rpm: 36, // 0.6 a second from the hip; 0.75 scoped (fireRateMult below)
     magSize: 5,
     reserve: 10,
     reloadTime: 3.7,
     equipTime: 1.3,
-    moveMult: 0.88,
-    damage: { head: 255, body: 150, legs: 127 }, // a body shot kills through full shield
+    moveMult: 0.76, // 5.13 m/s running, like the Operator
+    damage: { head: 255, body: 150, legs: 120 }, // a body shot kills through full shield; legs don't
     falloff: [],
     // Hip fire is a gamble; scoped and standing still it is pin-point.
     spread: { base: 4.5, run: 8, air: 14, perShot: 0, firstAccurateShots: 1, maxSpray: 0 },
@@ -80,9 +83,12 @@ export const WEAPONS = {
       punch: 2.2,
     },
     ads: {
-      zoom: 2.5, time: 0.22, scope: 'sniper', requireFull: true,
+      // Operator: right click for 2.5x, again for 5x, again to zoom out.
+      // You stay scoped between shots (set unscopeOnFire: true to be kicked
+      // out after each shot, as in Valorant).
+      zoom: 2.5, zoomLevels: [2.5, 5], time: 0.22, scope: 'sniper', requireFull: true, unscopeOnFire: false,
       spread: { base: 0, run: 9, air: 14, perShot: 0, firstAccurateShots: 1, maxSpray: 0 },
-      recoilMult: 1, fireRateMult: 1, moveMult: 0.76,
+      recoilMult: 1, fireRateMult: 1.25, moveMult: 0.72,
     },
     chamberTime: 1.0, // bolt animation after each shot
     viewKick: 0.09,

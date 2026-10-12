@@ -66,7 +66,9 @@ only blind enemies who are looking at them; turn away to dodge one.
 - **Rifle** (plays like the Vandal): automatic, one-shot headshots, no damage falloff.
   Right click zooms 1.25x for a tighter first shot.
 - **Sniper** (plays like the Operator): bolt action, one-shot body shots. Right click scopes
-  2.5x; it is pin-point only when fully scoped and standing still, and slows you down.
+  2.5x, right click again for 5x, and once more to zoom out. You stay scoped between shots.
+  Pin-point only when fully scoped and standing still; it slows you down and fires a little
+  faster scoped (0.75 a second) than from the hip (0.6). Leg shots do 120, so they don't kill.
 - **Pistol** (plays like the Sheriff): semi-automatic, one-shot headshots up close.
 
 Gunplay follows Valorant: the camera barely moves when you spray, so bullets climb above a
@@ -82,7 +84,7 @@ counter-strafe (tap the opposite key) to stop instantly. Crouching (C) steadies 
 | C (hold) | Crouch (not Ctrl: Ctrl + W closes the browser tab and can't be blocked) |
 | Shift (hold) | Walk quietly (bots can't hear you) |
 | Left click | Shoot |
-| Right click | Zoom (rifle) or scope (sniper); again to zoom out. Hold mode in Settings |
+| Right click | Rifle: zoom 1.25x. Sniper: 2.5x, then 5x, then out. Hold mode in Settings |
 | B | Buy menu: rifle or sniper (pre-round, or any time in the test range) |
 | R | Reload |
 | 1 / 2, mouse wheel | Primary / pistol |

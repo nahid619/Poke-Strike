@@ -341,6 +341,43 @@ const lookAt = (me, p, y) => {
   sn.set({ reload: true });
   sn.run(0.05);
   check('reloading takes you out of the scope', !sn.me.loadout.ads);
+
+  // Operator-style dual zoom: 2.5x, then 5x, then out. You stay at 5x between shots.
+  const dz = scene({ enemies: [[0, -40], [2, -40]] });
+  dz.me.loadout.setPrimary('sniper', dz.me, dz.ctx);
+  dz.run(1.5);
+  dz.set({ adsPressed: true });
+  dz.run(0.4);
+  check('first right click: 2.5x', Math.abs(dz.me.loadout.zoom - 2.5) < 1e-6);
+  dz.set({ adsPressed: true });
+  dz.run(0.1);
+  check('second right click: 5x', Math.abs(dz.me.loadout.zoom - 5) < 1e-6);
+  aimAt(dz.me, dz.foes[0], 1.1);
+  let shotsAt = [];
+  dz.ctx.events.on('shot', () => shotsAt.push(dz.ctx.time));
+  dz.set({ firePressed: true });
+  dz.run(0.1);
+  check('the sniper stays at 5x after a shot', dz.me.loadout.scoped && Math.abs(dz.me.loadout.zoom - 5) < 1e-6);
+  aimAt(dz.me, dz.foes[1], 1.1);
+  for (let i = 0; i < 120 && shotsAt.length < 2; i++) { dz.set({ firePressed: true }); dz.run(T); }
+  const gap = shotsAt[1] - shotsAt[0];
+  check('scoped, the sniper fires 0.75 a second', Math.abs(gap - 1 / 0.75) < 0.05, gap?.toFixed(2));
+  dz.set({ adsPressed: true });
+  dz.run(0.4);
+  check('third right click zooms out', dz.me.loadout.zoom === 1 && !dz.me.loadout.ads);
+
+  // Legs: 120, so a leg shot does not kill a full-shield enemy.
+  const lg = scene({ enemies: [[0, -15]] });
+  lg.me.loadout.setPrimary('sniper', lg.me, lg.ctx);
+  lg.run(1.5);
+  lg.set({ adsPressed: true });
+  lg.run(0.4);
+  aimAt(lg.me, lg.foe, 0.5);
+  let legHit = null;
+  lg.ctx.events.on('hit', (h) => { legHit = h; });
+  lg.set({ firePressed: true });
+  lg.run(0.05);
+  check('a sniper leg shot does 120 and leaves them alive', legHit?.part === 'legs' && legHit.damage === 120 && lg.foe.alive);
   check('holding the sniper slows you down', sn.me.loadout.moveMultiplier < 1);
 
   // Buying swaps slot 1 and keeps the pistol.

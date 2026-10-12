@@ -3,7 +3,7 @@ import { WEAPONS, PRIMARIES } from '../data/weapons.js';
 
 const BUY_INFO = {
   rifle: 'Automatic. One-shot headshots. Right click: zoom 1.25x.',
-  sniper: 'Bolt action. One-shot body shots. Right click: scope 2.5x.',
+  sniper: 'Bolt action. One-shot body shots. Right click: 2.5x, again for 5x.',
 };
 // In-match HUD: health, shield, ammo, weapon slots, crosshair, hit markers.
 // Text is only written to the DOM when it changes.

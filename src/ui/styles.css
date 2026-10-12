@@ -106,6 +106,16 @@ body[data-state="paused"] #scope { display: block; }
   background: radial-gradient(circle at 50% 50%,
     transparent 0, transparent 41vmin, rgba(0, 0, 0, 0.55) 41.5vmin, #000 43vmin, #000 100%);
 }
+#scope .zl {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 34vmin);
+  transform: translateX(-50%);
+  color: rgba(255, 255, 255, 0.75);
+  font: 700 0.85rem/1 inherit;
+  letter-spacing: 0.08em;
+  text-shadow: 0 1px 3px #000;
+}
 #scope .h, #scope .v { position: absolute; background: rgba(0, 0, 0, 0.85); }
 #scope .h { left: 0; right: 0; top: 50%; height: 1px; transform: translateY(-0.5px); }
 #scope .v { top: 0; bottom: 0; left: 50%; width: 1px; transform: translateX(-0.5px); }

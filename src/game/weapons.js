@@ -42,6 +42,8 @@ export class Loadout {
     this.lastFireSpread = 0;  // the part from spraying
     this.ads = false;         // wants to aim down sights / scope
     this.adsAmount = 0;       // 0 = hip, 1 = fully zoomed
+    this.zoomLevel = 0;       // which zoom (sniper: 0 = 2.5x, 1 = 5x)
+    this.rescopeAt = 0;       // after a sniper shot, no scoping until the bolt is back
     this.chamber = 0;         // sniper bolt cycling after a shot (visual)
     this.enabled = true;       // false = can't fire (e.g. drill countdown)
     this.infiniteAmmo = false; // aim trainer: never run dry
@@ -64,10 +66,26 @@ export class Loadout {
     return t > 0 ? 1 - this.equipTimer / t : 1;
   }
 
-  /** How zoomed in the current weapon is (1 = no zoom). */
-  get zoom() {
+  /** The zoom levels of the current weapon (empty if it has none). */
+  get zoomLevels() {
     const a = this.current.def.ads;
-    return a ? lerp(1, a.zoom, this.adsAmount) : 1;
+    return a ? a.zoomLevels ?? [a.zoom] : [];
+  }
+
+  /** Magnification of the selected zoom level (what you get once fully zoomed). */
+  get zoomLevelValue() {
+    const levels = this.zoomLevels;
+    return levels.length ? levels[Math.min(this.zoomLevel, levels.length - 1)] : 1;
+  }
+
+  /** How zoomed in the current weapon is right now (1 = no zoom). */
+  get zoom() {
+    return this.current.def.ads ? lerp(1, this.zoomLevelValue, this.adsAmount) : 1;
+  }
+
+  _unzoom() {
+    this.ads = false;
+    this.zoomLevel = 0;
   }
 
   /** Fully zoomed in. */
@@ -99,9 +117,10 @@ export class Loadout {
     this.reloadTimer = 0;
     this.equipTimer = 0;
     this.spray = 0;
-    this.ads = false;
+    this._unzoom();
     this.adsAmount = 0;
     this.chamber = 0;
+    this.rescopeAt = 0;
   }
 
   /** Swap the primary weapon (slot 1), e.g. from the buy menu. */
@@ -113,9 +132,10 @@ export class Loadout {
       this.equipTimer = this.current.def.equipTime;
       this.spray = 0;
       this.trigger = 0;
-      this.ads = false;
+      this._unzoom();
       this.adsAmount = 0;
       this.chamber = 0;
+      this.rescopeAt = 0;
       if (ctx) ctx.events.emit('equip', { owner, weapon: this.current.def });
     }
     return true;
@@ -128,9 +148,10 @@ export class Loadout {
     this.equipTimer = this.current.def.equipTime;
     this.spray = 0;
     this.trigger = 0;
-    this.ads = false;
+    this._unzoom();
     this.adsAmount = 0;
     this.chamber = 0;
+    this.rescopeAt = 0;
     ctx.events.emit('equip', { owner, weapon: this.current.def });
   }
 
@@ -138,7 +159,7 @@ export class Loadout {
     const w = this.current;
     if (this.reloading || w.ammo >= w.def.magSize || w.reserve <= 0) return;
     this.reloadTimer = w.def.reloadTime;
-    this.ads = false; // reloading takes you out of the scope
+    this._unzoom(); // reloading takes you out of the scope
     ctx.events.emit('reloadStart', { owner, weapon: w.def });
   }
 
@@ -189,13 +210,27 @@ export class Loadout {
     }
     if (intent.reload) this.startReload(owner, ctx);
 
-    // Aim down sights: toggle (press to zoom, press again to unzoom) or hold.
+    // Aim down sights. Toggle: each right click goes to the next zoom level,
+    // and past the last one zooms out (Operator: 2.5x, 5x, out). Hold: zoomed
+    // to the first level while held.
     const w = this.current;
     const def = w.def;
-    if (intent.adsHold) this.ads = !!intent.adsHeld;
-    else if (intent.adsPressed) this.ads = !this.ads;
-    const canZoom = !!def.ads && !this.reloading && this.equipTimer <= 0 && !owner.asleep;
-    if (!canZoom && !intent.adsHold) this.ads = false;
+    const levels = this.zoomLevels;
+    const canZoom = !!def.ads && !this.reloading && this.equipTimer <= 0 && !owner.asleep && ctx.time >= this.rescopeAt;
+    if (intent.adsHold) {
+      this.ads = !!intent.adsHeld;
+      if (!this.ads) this.zoomLevel = 0;
+    } else if (intent.adsPressed && canZoom) {
+      if (!this.ads) {
+        this.ads = true;
+        this.zoomLevel = 0;
+      } else if (this.zoomLevel < levels.length - 1) {
+        this.zoomLevel++;
+      } else {
+        this._unzoom();
+      }
+    }
+    if (!canZoom && !intent.adsHold) this._unzoom();
     const wantZoom = this.ads && canZoom;
     if (def.ads) {
       const step = dt / def.ads.time;
@@ -256,6 +291,8 @@ export class Loadout {
     this.nextFire = ctx.time - this.nextFire < interval ? this.nextFire + interval : ctx.time + interval;
     this.lastShot = ctx.time;
     if (def.chamberTime) this.chamber = def.chamberTime;
+    // The Operator kicks you out of the scope with every shot.
+    const unscope = def.ads?.unscopeOnFire && this.adsAmount > 0;
 
     // Aim direction = where you aim plus the spray pattern (the camera only
     // follows part of it), plus random spread.
@@ -285,6 +322,11 @@ export class Loadout {
 
     this._kick(owner, def, lerp(1, def.ads?.recoilMult ?? 1, k));
     this.spray += 1;
+    if (unscope) {
+      this._unzoom();
+      this.adsAmount = 0;
+      this.rescopeAt = ctx.time + (def.chamberTime ?? interval * 0.75);
+    }
   }
 
   _kick(owner, def, mult = 1) {
