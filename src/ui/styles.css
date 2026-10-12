@@ -40,10 +40,13 @@ body.view-dead #crosshair { display: none; }
   --spread: 0px;
   --len: 6px;
   --thick: 2px;
+  --dot: 3px;
+  --alpha: 1;
   --color: #ffffff;
   position: absolute;
   left: 50%;
   top: 50%;
+  opacity: var(--alpha);
 }
 #crosshair.xh { position: fixed; }
 .xh i {
@@ -60,13 +63,63 @@ body.view-dead #crosshair { display: none; }
 .xh .r { left: calc(var(--gap) + var(--spread)); }
 .xh .d {
   display: none;
-  width: var(--thick);
-  height: var(--thick);
-  left: calc(var(--thick) / -2);
-  top: calc(var(--thick) / -2);
+  width: var(--dot);
+  height: var(--dot);
+  left: calc(var(--dot) / -2);
+  top: calc(var(--dot) / -2);
 }
-.xh.style-dot .t, .xh.style-dot .b, .xh.style-dot .l, .xh.style-dot .r { display: none; }
-.xh.style-dot .d, .xh.style-both .d { display: block; }
+/* Circle: a thin ring around the dot. */
+.xh .o {
+  display: none;
+  --r: calc(var(--gap) + var(--spread) + 2px);
+  width: calc(var(--r) * 2);
+  height: calc(var(--r) * 2);
+  left: calc(var(--r) * -1);
+  top: calc(var(--r) * -1);
+  background: none;
+  border: var(--thick) solid var(--color);
+  border-radius: 50%;
+  box-sizing: border-box;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+.xh.no-outline .o { box-shadow: none; }
+.xh.style-dot .t, .xh.style-dot .b, .xh.style-dot .l, .xh.style-dot .r,
+.xh.style-circle .t, .xh.style-circle .b, .xh.style-circle .l, .xh.style-circle .r { display: none; }
+.xh.style-dot .d, .xh.style-both .d, .xh.style-circle .d { display: block; }
+.xh.style-circle .o { display: block; }
+/* Fully scoped with the sniper: the scope has its own reticle. */
+body.scoped #crosshair { display: none; }
+
+/* ---------- Sniper scope ---------- */
+#scope {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  display: none;
+}
+body[data-state="playing"] #scope,
+body[data-state="paused"] #scope { display: block; }
+#scope .lens {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 50%,
+    transparent 0, transparent 41vmin, rgba(0, 0, 0, 0.55) 41.5vmin, #000 43vmin, #000 100%);
+}
+#scope .h, #scope .v { position: absolute; background: rgba(0, 0, 0, 0.85); }
+#scope .h { left: 0; right: 0; top: 50%; height: 1px; transform: translateY(-0.5px); }
+#scope .v { top: 0; bottom: 0; left: 50%; width: 1px; transform: translateX(-0.5px); }
+#scope b {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: #ff3b3b;
+  box-shadow: 0 0 4px rgba(255, 60, 60, 0.8);
+}
 
 #hitmarker {
   --c: #ffffff;
@@ -302,7 +355,7 @@ body:not([data-mode="trainer"]) #trainer-hud,
 body:not([data-mode="trainer"]) #t-countdown,
 body:not([data-mode="trainer"]) [data-for="trainer"],
 body:not([data-mode="range"]) [data-for="range"],
-body:not([data-mode="match"]) [data-for="match"] { display: none; }
+body:not([data-mode="match"]) [data-for="match"] { display: none !important; } /* beats #match-hud's own display */
 
 /* ---------- Menus ---------- */
 .card.wide { width: min(600px, 100%); }
@@ -529,6 +582,65 @@ body:not([data-mode="match"]) [data-for="match"] { display: none; }
 .ab[data-state="armed"] { border-color: #b68cff; }
 .ab[data-state="armed"] .ab-cd { font-size: 0.7rem; color: #cdb4ff; }
 .ab[data-state="blocked"] { border-color: #ff7a7e; opacity: 0.7; }
+.ab-ch {
+  position: relative;
+  margin-left: 6px;
+  font-size: 0.6rem;
+  letter-spacing: 1px;
+  color: var(--volt);
+  vertical-align: middle;
+}
+
+/* ---------- Buy menu ---------- */
+#buy-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+  padding: 5px 12px;
+  border-radius: 4px;
+  background: rgba(12, 16, 26, 0.75);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+#buy-hint kbd, #buy kbd {
+  display: inline-block;
+  min-width: 20px;
+  margin-right: 6px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--volt);
+  color: var(--volt-ink);
+  font: 800 0.75rem/18px inherit;
+  text-align: center;
+}
+#buy {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(420px, 90vw);
+  padding: 16px 18px 12px;
+  background: var(--panel);
+  border-left: 4px solid var(--volt);
+  border-radius: 4px;
+}
+#buy[hidden], #buy-hint[hidden] { display: none; }
+#buy h4 { margin: 0 0 10px; font-size: 1.1rem; }
+#buy h4 small { margin-left: 8px; color: var(--ink-dim); font-weight: 600; font-size: 0.8rem; }
+#buy ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+#buy li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+#buy li b { font-size: 1rem; }
+#buy li span { grid-column: 2; color: var(--ink-dim); font-size: 0.82rem; }
+#buy li.on { border-color: var(--volt); background: rgba(255, 207, 58, 0.08); }
+#buy p { margin: 10px 0 0; color: var(--ink-dim); font-size: 0.8rem; }
 
 #hud-agent {
   position: absolute;
@@ -593,6 +705,14 @@ body[data-state="paused"] #status-fx { display: block; }
 #fx-slow { box-shadow: inset 0 0 140px 20px rgba(90, 160, 255, 0.45); }
 #fx-heal { box-shadow: inset 0 0 140px 20px rgba(94, 224, 138, 0.4); }
 #fx-shield { box-shadow: inset 0 0 90px 6px rgba(159, 216, 255, 0.35); }
+/* Flashed: the screen goes white, then fades back. Opacity is set from the game. */
+#fx-blind {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle, #ffffff 0, #fffbe8 60%, #f2eedd 100%);
+}
+#fx-blind[hidden] { display: none; }
 @keyframes fx-pulse { from { opacity: 0.6; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { #fx-stun { animation: none; } }
 
@@ -1037,3 +1157,7 @@ button.link:hover { text-decoration-color: var(--volt); }
 .code-actions button { flex: 1; padding: 8px 10px; font-size: 0.85rem; }
 #code-status.ok { color: #5ee08a; }
 #code-status.bad { color: #ff8a8e; }
+
+/* Crosshair presets: five buttons, so let them wrap. */
+.seg.presets { flex-wrap: wrap; }
+.seg.presets button { padding: 7px 10px; font-size: 0.85rem; }

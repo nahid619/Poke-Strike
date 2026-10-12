@@ -3,7 +3,7 @@
 
 const GAME_KEYS = new Set([
   'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'ShiftLeft', 'ShiftRight',
-  'ControlLeft', 'KeyQ', 'KeyE', 'KeyR', 'Tab', 'Digit1', 'Digit2', 'Digit3', 'KeyF',
+  'ControlLeft', 'ControlRight', 'KeyC', 'KeyQ', 'KeyE', 'KeyR', 'Tab', 'Digit1', 'Digit2', 'Digit3', 'KeyF', 'KeyB',
 ]);
 
 // Events with a bigger jump than this might be glitches (some systems send one

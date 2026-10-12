@@ -18,6 +18,7 @@ import { RangeMode } from './modes/range.js';
 import { AimTrainer } from './modes/aimtrainer.js';
 import { MatchMode } from './modes/match.js';
 import { AGENTS, agentById } from './data/agents.js';
+import { PRIMARIES } from './data/weapons.js';
 import { mapById } from './data/maps/index.js';
 
 const TICK_RATE = 60;
@@ -67,10 +68,13 @@ const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerH
 camera.rotation.order = 'YXZ'; // yaw, then pitch: standard FPS camera
 
 // Settings store horizontal FOV (like Valorant); Three.js wants vertical.
-// `kick` widens it briefly (dashes).
-function applyFov(kick = 0) {
+// `kick` widens it briefly (dashes); `zoom` magnifies (aiming down sights).
+let lastFov = { kick: 0, zoom: 1 };
+function applyFov(kick = lastFov.kick, zoom = lastFov.zoom) {
+  lastFov = { kick, zoom };
   const h = THREE.MathUtils.degToRad(settings.fov + kick);
-  camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(h / 2) / camera.aspect));
+  const tanH = Math.tan(h / 2) / zoom;
+  camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(tanH / camera.aspect));
   camera.updateProjectionMatrix();
 }
 applyFov();
@@ -261,6 +265,32 @@ let last = performance.now();
 let look = { x: 0, y: 0 };
 let fovKick = 0;
 let orbit = 0;
+let adsVis = 0;         // smoothed zoom amount for drawing (0..1)
+let adsWeapon = null;   // the weapon that zoom belongs to
+const camKick = { p: 0, y: 0, who: null }; // smoothed recoil on the camera
+let buyOpen = false;
+let lastZoomIn = false;
+const scopeEl = document.getElementById('scope');
+const blindEl = document.getElementById('fx-blind');
+
+/** The buy menu: press B (pre-round in a match, any time in the test range). */
+function updateBuy() {
+  const pressedB = input.consumePressed('KeyB');
+  const canBuy = state === 'playing' && !!session.canBuy?.();
+  if (!canBuy) buyOpen = false;
+  else if (pressedB) buyOpen = !buyOpen;
+  if (buyOpen) {
+    PRIMARIES.forEach((id, i) => {
+      if (input.consumePressed('Digit' + (i + 1))) {
+        session.buyPrimary(id);
+        buyOpen = false;
+      }
+    });
+  }
+  human.buyOpen = buyOpen;
+  const primary = session.player.loadout?.weapons[0]?.def.id;
+  hud.buyMenu({ open: buyOpen, canBuy, primary, hint: canBuy && session.isMatch });
+}
 
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.25);
@@ -268,6 +298,7 @@ function frame(now) {
   const me = session.controlled;
 
   let ticks = 0;
+  updateBuy();
   if (state === 'playing') {
     look = me.alive ? human.updateLook(me) : (input.consumeMouse(), { x: 0, y: 0 });
     if (!me.alive && session.isMatch && input.consumePressed('Mouse0')) session.cycleSpectate();
@@ -308,9 +339,16 @@ function frame(now) {
     camera.position.copy(pose.pos);
     camera.rotation.set(pose.pitch, pose.yaw, 0);
   } else {
-    // Eyes + view direction (including recoil).
+    // Eyes + view direction. Mouse look is applied instantly; the recoil kick
+    // on top is smoothed per frame so it never steps at the 60 Hz tick rate.
     player.eyePosition(alpha, camera.position);
-    camera.rotation.set(player.viewPitch, player.viewYaw, 0);
+    const kp = player.viewPitch - player.pitch;
+    const ky = player.viewYaw - player.yaw;
+    if (camKick.who !== player) Object.assign(camKick, { p: kp, y: ky, who: player });
+    const k = 1 - Math.exp(-dt * 40);
+    camKick.p += (kp - camKick.p) * k;
+    camKick.y += (ky - camKick.y) * k;
+    camera.rotation.set(player.pitch + camKick.p, player.yaw + camKick.y, 0);
   }
   camera.updateMatrixWorld();
   document.body.classList.toggle('took-over', !!session.isMatch && session.controlled !== session.player);
@@ -319,32 +357,71 @@ function frame(now) {
   session.listener.z = camera.position.z;
   session.listener.yaw = player.viewYaw;
 
+  // Aiming down sights: follow the game's zoom amount smoothly between ticks.
+  const L = player.loadout;
+  const def = L.current.def;
+  if (adsWeapon !== def || !player.alive) {
+    adsWeapon = def;
+    adsVis = L.adsAmount;
+  }
+  if (def.ads) {
+    const rate = (dt / def.ads.time) * 1.6;
+    const diff = L.adsAmount - adsVis;
+    adsVis += Math.sign(diff) * Math.min(Math.abs(diff), rate);
+  } else {
+    adsVis = 0;
+  }
+  // Click when zooming in or out (only for the body you control).
+  const zoomingIn = !!def.ads && L.ads && player === me;
+  if (zoomingIn !== lastZoomIn) {
+    if (def.ads && running && player === me) sound.scope(zoomingIn);
+    lastZoomIn = zoomingIn;
+  }
+  const easedZoom = 1 - (1 - adsVis) * (1 - adsVis);
+  const zoom = def.ads ? 1 + (def.ads.zoom - 1) * easedZoom : 1;
+  human.zoom = zoom;
+  const sniperScope = def.ads?.scope === 'sniper' && adsVis > 0.85 && player.alive && (running || state === 'paused');
+  document.body.classList.toggle('scoped', sniperScope);
+  if (scopeEl) scopeEl.style.opacity = sniperScope ? String(Math.min(1, (adsVis - 0.85) / 0.15)) : '0';
+
   // Dashes widen the FOV for a moment.
   const kickTarget = player.dash ? 8 : 0;
   if (Math.abs(kickTarget - fovKick) > 0.01 || fovKick !== 0) {
     fovKick += (kickTarget - fovKick) * Math.min(1, dt * 18);
     if (Math.abs(fovKick) < 0.01) fovKick = 0;
-    applyFov(fovKick);
   }
+  if (fovKick !== lastFov.kick || Math.abs(zoom - lastFov.zoom) > 1e-4) applyFov(fovKick, zoom);
 
-  const L = player.loadout;
   viewmodel.update(running ? dt : 0, {
-    weaponId: L.current.def.id,
+    weaponId: def.id,
     equip: L.equipProgress,
     reload: L.reloadProgress,
     speed: Math.min(1, Math.hypot(player.vel.x, player.vel.z) / MOVE.runSpeed),
     onGround: player.onGround,
+    vy: player.vel.y,
     lookX: look.x,
     lookY: look.y,
+    ads: adsVis,
+    crouch: player.crouchAmt,
+    chamber: L.chamberProgress,
+    walking: Math.hypot(player.vel.x, player.vel.z) < MOVE.walkSpeed + 0.3,
   });
   session.updateVisuals(running ? dt : 0, camera);
 
-  // HUD. The crosshair opens up by the current spread (degrees -> pixels).
+  // HUD. By default the crosshair never moves (like Valorant's defaults);
+  // you can turn on movement and firing error in Settings to see them.
   const vfov = THREE.MathUtils.degToRad(camera.fov);
-  const spreadPx = settings.crosshairDynamic
-    ? (Math.tan(THREE.MathUtils.degToRad(L.lastSpread)) / Math.tan(vfov / 2)) * (window.innerHeight / 2)
+  const errorDeg = (settings.crosshairMovementError ? L.lastMoveSpread : 0) +
+    (settings.crosshairFiringError ? L.lastFireSpread : 0);
+  const spreadPx = errorDeg > 0
+    ? (Math.tan(THREE.MathUtils.degToRad(errorDeg)) / Math.tan(vfov / 2)) * (window.innerHeight / 2)
     : 0;
   hud.update(player, Math.min(spreadPx, 80));
+  if (blindEl) {
+    const b = player.alive && running ? player.blindAmount : 0;
+    blindEl.style.opacity = b.toFixed(3);
+    blindEl.hidden = b <= 0;
+  }
   hud.statusEffects({
     smoke: session.world.inSmoke(camera.position),
     sleep: player.asleep,
@@ -353,6 +430,7 @@ function frame(now) {
     heal: player.healing,
     shield: player.bonusShield > 0,
     revealed: player.revealed,
+    blind: player.blinded,
   });
   updateTrainerHud();
   if (session.isMatch && session.phase !== 'idle') {
@@ -367,7 +445,7 @@ function frame(now) {
 
   renderer.clear();
   renderer.render(session.scene, camera);
-  if ((state === 'playing' || state === 'paused') && player.alive) viewmodel.render(renderer);
+  if ((state === 'playing' || state === 'paused') && player.alive && !sniperScope) viewmodel.render(renderer);
   requestAnimationFrame(frame);
 }
 

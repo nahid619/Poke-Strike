@@ -10,6 +10,8 @@ export class HumanController {
     this.input = input;
     this.settings = settings;
     this.isHuman = true; // shots from a human are checked against what was on screen
+    this.zoom = 1;       // current zoom on screen (set every frame), scales sensitivity
+    this.buyOpen = false; // while the buy menu is open, 1 and 2 pick a gun instead
   }
 
   /** Called every rendered frame (not per tick) so aiming feels instant. */
@@ -17,7 +19,11 @@ export class HumanController {
     const delta = this.input.consumeMouse();
     if (character.asleep) return { x: 0, y: 0 }; // can't aim while asleep
     const { x, y } = delta;
-    const radPerCount = (this.settings.sensitivity * DEG_PER_COUNT * Math.PI) / 180;
+    // Zoomed in, the same hand movement turns you less (like Valorant), so
+    // the crosshair moves the same distance on screen. The scoped multiplier
+    // fine-tunes it.
+    const zoomScale = this.zoom > 1.001 ? (this.settings.scopedSensitivity ?? 1) / this.zoom : 1;
+    const radPerCount = (this.settings.sensitivity * zoomScale * DEG_PER_COUNT * Math.PI) / 180;
     character.yaw -= x * radPerCount;
     character.pitch -= y * radPerCount;
     character.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, character.pitch));
@@ -30,8 +36,10 @@ export class HumanController {
   getIntent() {
     const i = this.input;
     let switchTo = null;
-    if (i.consumePressed('Digit1')) switchTo = 0;
-    if (i.consumePressed('Digit2')) switchTo = 1;
+    if (!this.buyOpen) {
+      if (i.consumePressed('Digit1')) switchTo = 0;
+      if (i.consumePressed('Digit2')) switchTo = 1;
+    }
     return {
       forward: (i.isDown('KeyW') ? 1 : 0) - (i.isDown('KeyS') ? 1 : 0),
       right: (i.isDown('KeyD') ? 1 : 0) - (i.isDown('KeyA') ? 1 : 0),
@@ -45,6 +53,12 @@ export class HumanController {
       abilityQ: i.consumePressed('KeyQ'),
       abilityE: i.consumePressed('KeyE'),
       interact: i.isDown('KeyF'), // hold to plant or defuse the spike
+      // Crouch is on C: in a browser, Ctrl + W closes the tab and can't be blocked.
+      crouch: i.isDown('KeyC'),
+      // Right click: zoom / scope. Toggle (press again to unzoom) or hold.
+      adsPressed: i.consumePressed('Mouse2'),
+      adsHeld: i.isDown('Mouse2'),
+      adsHold: this.settings.adsMode === 'hold',
     };
   }
 }

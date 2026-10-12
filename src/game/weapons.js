@@ -25,6 +25,8 @@ class Weapon {
   }
 }
 
+const lerp = (a, b, k) => a + (b - a) * k;
+
 export class Loadout {
   constructor(ids) {
     this.weapons = ids.map((id) => new Weapon(WEAPONS[id]));
@@ -36,6 +38,11 @@ export class Loadout {
     this.spray = 0;
     this.trigger = 0;
     this.lastSpread = 0;
+    this.lastMoveSpread = 0;  // the part of the spread from moving or jumping
+    this.lastFireSpread = 0;  // the part from spraying
+    this.ads = false;         // wants to aim down sights / scope
+    this.adsAmount = 0;       // 0 = hip, 1 = fully zoomed
+    this.chamber = 0;         // sniper bolt cycling after a shot (visual)
     this.enabled = true;       // false = can't fire (e.g. drill countdown)
     this.infiniteAmmo = false; // aim trainer: never run dry
   }
@@ -57,11 +64,61 @@ export class Loadout {
     return t > 0 ? 1 - this.equipTimer / t : 1;
   }
 
+  /** How zoomed in the current weapon is (1 = no zoom). */
+  get zoom() {
+    const a = this.current.def.ads;
+    return a ? lerp(1, a.zoom, this.adsAmount) : 1;
+  }
+
+  /** Fully zoomed in. */
+  get scoped() {
+    return !!this.current.def.ads && this.adsAmount >= 0.999;
+  }
+
+  /** How much the zoom's accuracy and handling apply right now (0..1). */
+  get adsWeight() {
+    const a = this.current.def.ads;
+    if (!a) return 0;
+    return a.requireFull ? (this.adsAmount >= 0.999 ? 1 : 0) : this.adsAmount;
+  }
+
+  /** Running speed multiplier from the weapon in hand (and zooming). */
+  get moveMultiplier() {
+    const def = this.current.def;
+    const a = def.ads;
+    return (def.moveMult ?? 1) * (a ? lerp(1, a.moveMult ?? 1, this.adsAmount) : 1);
+  }
+
+  get chamberProgress() {
+    const t = this.current.def.chamberTime;
+    return t && this.chamber > 0 ? 1 - this.chamber / t : 0;
+  }
+
   refill() {
     for (const w of this.weapons) w.refill();
     this.reloadTimer = 0;
     this.equipTimer = 0;
     this.spray = 0;
+    this.ads = false;
+    this.adsAmount = 0;
+    this.chamber = 0;
+  }
+
+  /** Swap the primary weapon (slot 1), e.g. from the buy menu. */
+  setPrimary(id, owner = null, ctx = null) {
+    if (!WEAPONS[id] || this.weapons[0]?.def.id === id) return false;
+    this.weapons[0] = new Weapon(WEAPONS[id]);
+    if (this.index === 0) {
+      this.reloadTimer = 0;
+      this.equipTimer = this.current.def.equipTime;
+      this.spray = 0;
+      this.trigger = 0;
+      this.ads = false;
+      this.adsAmount = 0;
+      this.chamber = 0;
+      if (ctx) ctx.events.emit('equip', { owner, weapon: this.current.def });
+    }
+    return true;
   }
 
   switchTo(index, owner, ctx) {
@@ -71,6 +128,9 @@ export class Loadout {
     this.equipTimer = this.current.def.equipTime;
     this.spray = 0;
     this.trigger = 0;
+    this.ads = false;
+    this.adsAmount = 0;
+    this.chamber = 0;
     ctx.events.emit('equip', { owner, weapon: this.current.def });
   }
 
@@ -78,20 +138,38 @@ export class Loadout {
     const w = this.current;
     if (this.reloading || w.ammo >= w.def.magSize || w.reserve <= 0) return;
     this.reloadTimer = w.def.reloadTime;
+    this.ads = false; // reloading takes you out of the scope
     ctx.events.emit('reloadStart', { owner, weapon: w.def });
+  }
+
+  /** The spread values in use right now: hip fire blended toward zoomed. */
+  _spreadDef() {
+    const def = this.current.def;
+    const s = def.spread;
+    const a = def.ads;
+    const k = this.adsWeight;
+    if (!a || k <= 0) return s;
+    const z = a.spread ?? Object.fromEntries(Object.entries(s).map(([key, v]) =>
+      [key, key === 'firstAccurateShots' ? v : v * (a.spreadMult ?? 1)]));
+    const out = {};
+    for (const key of Object.keys(s)) out[key] = key === 'firstAccurateShots' ? s[key] : lerp(s[key], z[key] ?? s[key], k);
+    return out;
   }
 
   /** Current bullet spread (half-angle, degrees) for this owner. */
   spreadFor(owner) {
-    const s = this.current.def.spread;
+    const s = this._spreadDef();
     const speed = Math.hypot(owner.vel.x, owner.vel.z);
     const moving = Math.min(Math.max((speed - 0.8) / (MOVE.runSpeed - 0.8), 0), 1);
-    let spread = s.base + moving * s.run;
-    if (!owner.onGround) spread += s.air;
-    if (owner.stunned) spread += STATUS.stunSpread;
+    const crouch = 1 - 0.2 * (owner.crouchAmt ?? 0); // crouching steadies your aim a little
+    let move = moving * s.run;
+    if (!owner.onGround) move += s.air;
+    if (owner.stunned) move += STATUS.stunSpread;
     const sprayShots = Math.max(0, this.spray - (s.firstAccurateShots - 1));
-    spread += Math.min(s.maxSpray, sprayShots * s.perShot);
-    return spread;
+    const fire = Math.min(s.maxSpray, sprayShots * s.perShot) * crouch;
+    this.lastMoveSpread = move;
+    this.lastFireSpread = fire;
+    return s.base * crouch + move + fire;
   }
 
   tick(dt, intent, owner, ctx) {
@@ -102,6 +180,7 @@ export class Loadout {
       this.switchTo((this.index + intent.switchDelta + n) % n, owner, ctx);
     }
     if (this.equipTimer > 0) this.equipTimer = Math.max(0, this.equipTimer - dt);
+    if (this.chamber > 0) this.chamber = Math.max(0, this.chamber - dt);
 
     // Reloading
     if (this.reloadTimer > 0) {
@@ -110,9 +189,22 @@ export class Loadout {
     }
     if (intent.reload) this.startReload(owner, ctx);
 
-    // Trigger
+    // Aim down sights: toggle (press to zoom, press again to unzoom) or hold.
     const w = this.current;
     const def = w.def;
+    if (intent.adsHold) this.ads = !!intent.adsHeld;
+    else if (intent.adsPressed) this.ads = !this.ads;
+    const canZoom = !!def.ads && !this.reloading && this.equipTimer <= 0 && !owner.asleep;
+    if (!canZoom && !intent.adsHold) this.ads = false;
+    const wantZoom = this.ads && canZoom;
+    if (def.ads) {
+      const step = dt / def.ads.time;
+      this.adsAmount = wantZoom ? Math.min(1, this.adsAmount + step) : Math.max(0, this.adsAmount - step * 1.4);
+    } else {
+      this.adsAmount = 0;
+    }
+
+    // Trigger
     if (intent.firePressed) this.trigger = TRIGGER_BUFFER;
     const wantsFire = this.enabled && (def.mode === 'auto' ? intent.fireHeld || this.trigger > 0 : this.trigger > 0);
     this.trigger = Math.max(0, this.trigger - dt);
@@ -129,13 +221,16 @@ export class Loadout {
       }
     }
 
-    // Recovery once you stop shooting
+    // Recovery once you stop shooting. The camera kick springs back quickly.
     const idle = ctx.time - this.lastShot;
     if (idle > w.interval + 0.03) {
       const k = Math.exp(-dt * def.recoil.recover);
       owner.recoilPitch *= k;
       owner.recoilYaw *= k;
     }
+    const pk = Math.exp(-dt * 16);
+    owner.punchPitch *= pk;
+    owner.punchYaw *= pk;
     if (idle > SPRAY_RESET_DELAY) this.spray = Math.max(0, this.spray - dt * SPRAY_DECAY);
     this.lastSpread = this.spreadFor(owner);
   }
@@ -153,14 +248,19 @@ export class Loadout {
     const w = this.current;
     const def = w.def;
     if (!this.infiniteAmmo) w.ammo--;
+    const k = this.adsWeight;
 
-    // Keep a steady fire rate even though ticks are 1/60 s apart.
-    this.nextFire = ctx.time - this.nextFire < w.interval ? this.nextFire + w.interval : ctx.time + w.interval;
+    // Keep a steady fire rate even though ticks are 1/60 s apart. Zooming
+    // slows the fire rate a little, like Valorant.
+    const interval = w.interval / lerp(1, def.ads?.fireRateMult ?? 1, k);
+    this.nextFire = ctx.time - this.nextFire < interval ? this.nextFire + interval : ctx.time + interval;
     this.lastShot = ctx.time;
+    if (def.chamberTime) this.chamber = def.chamberTime;
 
-    // Aim direction = where the view points (including recoil), plus spread.
+    // Aim direction = where you aim plus the spray pattern (the camera only
+    // follows part of it), plus random spread.
     const spread = this.spreadFor(owner) * DEG;
-    const dir = directionFromAngles(owner.viewYaw, owner.viewPitch);
+    const dir = directionFromAngles(owner.aimYaw, owner.aimPitch);
     applySpread(dir, spread);
     // Fire from the eye, where the camera is. The drawn position already
     // includes the smoothing after stepping up a ledge (stepOffset).
@@ -169,7 +269,7 @@ export class Loadout {
     const origin = { x: at.x, y: at.y + owner.eyeHeight + lift, z: at.z };
 
     const hit = traceShot(origin, dir, owner, ctx);
-    const shot = { owner, weapon: def, origin, dir, hit };
+    const shot = { owner, weapon: def, origin, dir, hit, scoped: k > 0.5 };
 
     if (hit.character) {
       const base = def.damage[hit.part];
@@ -183,21 +283,25 @@ export class Loadout {
     }
     ctx.events.emit('shot', shot);
 
-    this._kick(owner, def);
+    this._kick(owner, def, lerp(1, def.ads?.recoilMult ?? 1, k));
     this.spray += 1;
   }
 
-  _kick(owner, def) {
+  _kick(owner, def, mult = 1) {
     const r = def.recoil;
     const i = Math.floor(this.spray);
-    const vertical = r.vertical[Math.min(i, r.vertical.length - 1)];
-    let horizontal = (Math.random() * 2 - 1) * r.jitter;
+    const vertical = r.vertical[Math.min(i, r.vertical.length - 1)] * mult;
+    let horizontal = (Math.random() * 2 - 1) * r.jitter * mult;
     if (r.swayStart != null && i >= r.swayStart) {
       const side = Math.floor((i - r.swayStart) / r.swayPeriod) % 2 === 0 ? 1 : -1;
-      horizontal += side * r.swayAmount;
+      horizontal += side * r.swayAmount * mult;
     }
     owner.recoilPitch = Math.min(owner.recoilPitch + vertical * DEG, r.maxPitch * DEG);
     owner.recoilYaw = Math.max(-r.maxYaw * DEG, Math.min(r.maxYaw * DEG, owner.recoilYaw + horizontal * DEG));
+    // Camera-only kick: the screen jolts and settles, the aim point doesn't move.
+    const punch = (r.punch ?? 0) * DEG;
+    owner.punchPitch += punch;
+    owner.punchYaw += (Math.random() * 2 - 1) * punch * 0.25;
   }
 }
 

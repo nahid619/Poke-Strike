@@ -37,7 +37,7 @@ function scene({ map = null, agent = 'pikachu', enemies = [[0, -10]] } = {}) {
   }
   const events = new Events();
   const log = [];
-  for (const t of ['hit', 'kill', 'abilityCast', 'abilityDenied', 'markerPlaced']) events.on(t, (d) => log.push([t, d]));
+  for (const t of ['hit', 'kill', 'abilityCast', 'abilityDenied', 'markerPlaced', 'payload', 'trapTriggered']) events.on(t, (d) => log.push([t, d]));
   const ctx = { world, characters: [], events, time: 0 };
   ctx.zones = new Zones(world, events);
   const me = new Character({ team: 'ally' });
@@ -49,9 +49,10 @@ function scene({ map = null, agent = 'pikachu', enemies = [[0, -10]] } = {}) {
     getIntent() {
       const i = {
         forward: 0, right: 0, walk: false, jump: false, fireHeld: false, firePressed: false,
-        reload: false, switchTo: null, switchDelta: 0, abilityQ: false, abilityE: false, interact: false, ...intent,
+        reload: false, switchTo: null, switchDelta: 0, abilityQ: false, abilityE: false, interact: false,
+        crouch: false, adsPressed: false, adsHeld: false, adsHold: false, ...intent,
       };
-      for (const k of ['jump', 'firePressed', 'reload', 'abilityQ', 'abilityE']) intent[k] = false;
+      for (const k of ['jump', 'firePressed', 'reload', 'abilityQ', 'abilityE', 'adsPressed']) intent[k] = false;
       intent.switchTo = null;
       return i;
     },
@@ -122,7 +123,7 @@ const aimAt = (me, target, y) => {
   s.set({ fireHeld: true });
   s.run(1);
   s.set({ fireHeld: false });
-  check('rifle fires 600 rounds a minute', shots === 10 || shots === 11, `${shots} in 1 s`);
+  check('rifle fires about 585 rounds a minute', shots === 10, `${shots} in 1 s`);
 
   const h = scene();
   aimAt(h.me, h.foe, 1.58);
@@ -157,29 +158,108 @@ const aimAt = (me, target, y) => {
   r.set({ right: 1 });
   r.run(0.5);
   const moving = r.me.loadout.spreadFor(r.me);
-  r.set({ right: -1 });
-  r.run(0.08);
+  r.set({ right: -1 }); // a quick tap of the opposite key (movement is snappy, like Valorant)
+  r.run(0.05);
   r.set({ right: 0 });
   check('counter-strafing restores accuracy', moving > 3 && r.me.loadout.spreadFor(r.me) < 0.5);
 }
 
 // ---------------------------------------------------------- abilities and statuses
+/** Look at a point (feet height y) so the camera direction points there. */
+const lookAt = (me, p, y) => {
+  const dx = p.x - me.pos.x;
+  const dz = p.z - me.pos.z;
+  me.yaw = Math.atan2(-dx, -dz);
+  me.pitch = Math.atan2(y - 1.6, Math.hypot(dx, dz));
+  me.recoilPitch = me.recoilYaw = me.punchPitch = me.punchYaw = 0;
+};
 {
-  const s = scene({ agent: 'pikachu', enemies: [[0, -5]] });
+  // Flash Bolt: blinds an enemy looking at it, not one looking away.
+  const s = scene({ agent: 'pikachu', enemies: [[0, -20], [3, -20]] });
+  s.foes[1].yaw = 0; // facing away (toward -Z, same way as you)
+  s.set({ abilityE: true });
+  s.run(0.7);
+  check('Flash Bolt blinds an enemy looking at it', s.foes[0].blinded);
+  check('Flash Bolt spares an enemy looking away', !s.foes[1].blinded);
+  check('Flash Bolt has a second charge', s.me.abilities.slots.e.charges === 1);
   s.set({ abilityE: true });
   s.run(0.05);
-  check('Thunder Wave stuns a nearby enemy', s.foe.stunned);
+  s.set({ abilityE: true });
+  s.run(0.05);
+  check('a third flash is denied until a charge returns', s.log.some((l) => l[0] === 'abilityDenied' && l[1].reason === 'cooldown'));
+
   s.me.applyStatus('stun', 2);
   s.set({ abilityQ: true });
   s.run(0.05);
   check('a stunned player cannot use abilities', s.log.some((l) => l[0] === 'abilityDenied' && l[1].reason === 'stunned'));
 
-  const j = scene({ agent: 'jigglypuff', enemies: [[0, -6]] });
+  // Sing: thrown, puts enemies near where it lands to sleep.
+  const j = scene({ agent: 'jigglypuff', enemies: [[0, -8]] });
+  lookAt(j.me, j.foe.pos, 0);
   j.set({ abilityQ: true });
-  j.run(0.05);
-  check('Sing puts an enemy to sleep', j.foe.asleep);
+  j.run(1);
+  check('Sing puts an enemy to sleep where it lands', j.foe.asleep);
   j.foe.applyDamage(10);
   check('damage wakes a sleeper', !j.foe.asleep);
+
+  // Confusion: thrown stun.
+  const c = scene({ agent: 'alakazam', enemies: [[0, -10]] });
+  lookAt(c.me, c.foe.pos, 0);
+  c.set({ abilityQ: true });
+  c.run(1);
+  check('Confusion stuns an enemy where it bursts', c.foe.stunned);
+
+  // Ember: lobbed fire that burns.
+  const f = scene({ agent: 'charizard', enemies: [[0, -9]] });
+  lookAt(f.me, f.foe.pos, 1.6); // a level throw arcs down onto them
+  f.set({ abilityQ: true });
+  f.run(1.5);
+  const fire = f.ctx.zones.fires[0];
+  check('Ember leaves fire on the floor', !!fire && Math.abs(fire.y) < 0.05, fire ? fire.y.toFixed(2) : 'none');
+  check('Ember burns an enemy standing in it', f.foe.health + f.foe.shield < 150);
+
+  // Future Sight: recon reveals enemies it can see.
+  const r = scene({ agent: 'alakazam', enemies: [[0, -15]] });
+  lookAt(r.me, { x: 0, z: -8 }, 0);
+  r.set({ abilityE: true });
+  r.run(1.5);
+  check('Future Sight reveals an enemy in its view', r.foe.revealed);
+
+  // Bubble Trap: arms, then slows and reveals the first enemy on it.
+  const t = scene({ agent: 'blastoise', enemies: [[0, -30]] });
+  lookAt(t.me, { x: 0, z: -6 }, 0);
+  t.set({ abilityQ: true });
+  t.run(0.05);
+  const trap = t.ctx.zones.traps[0];
+  check('Bubble Trap is placed on the floor', !!trap && Math.abs(trap.z + 6) < 0.6, trap ? trap.z.toFixed(2) : 'none');
+  t.run(1.2);
+  t.foe.teleport(trap.x, 0, trap.z, Math.PI);
+  t.run(0.05);
+  check('Bubble Trap slows and reveals an enemy', t.foe.status.slow > 0 && t.foe.revealed && t.ctx.zones.traps.length === 0);
+
+  // Protect: shields you and a nearby teammate.
+  const w = scene({ agent: 'blastoise' });
+  const mate = new Character({ team: 'ally' });
+  mate.teleport(3, 0, 0, 0);
+  w.ctx.characters.push(mate);
+  w.set({ abilityE: true });
+  w.run(0.05);
+  w.me.applyDamage(60);
+  check('Protect shield absorbs damage first', w.me.shield === 40 && w.me.health === 100);
+  check('Protect shields nearby teammates', mate.bonusShield === 50);
+
+  // Wish: heals you and teammates; denied when nobody is hurt.
+  const h = scene({ agent: 'jigglypuff' });
+  h.set({ abilityE: true });
+  h.run(0.05);
+  check('Wish is denied when nobody is hurt', h.log.some((l) => l[0] === 'abilityDenied'));
+  const hurt = new Character({ team: 'ally' });
+  hurt.teleport(4, 0, 0, 0);
+  hurt.health = 30;
+  h.ctx.characters.push(hurt);
+  h.set({ abilityE: true });
+  h.run(3.2);
+  check('Wish heals a hurt teammate', hurt.health >= 89, String(hurt.health));
 
   const g = scene({ agent: 'gengar', enemies: [[0, -20]] });
   g.me.pitch = -0.12;
@@ -189,6 +269,7 @@ const aimAt = (me, target, y) => {
   const bpt = { x: 0, y: 1.1, z: -20 };
   check('smoke blocks bot vision', !g.world.lineOfSight(a, bpt, true));
   check('smoke does not block walls-only checks', g.world.lineOfSight(a, bpt, false));
+  check('Dark Fog has two charges', g.me.abilities.slots.q.charges === 1);
 
   const m = scene({ agent: 'gengar' });
   m.set({ abilityE: true });
@@ -199,21 +280,85 @@ const aimAt = (me, target, y) => {
   m.run(0.05);
   check('Shadow Mark teleports you back', Math.abs(m.me.pos.z) < 0.01);
 
-  const w = scene({ agent: 'blastoise' });
-  w.set({ abilityQ: true });
-  w.run(0.05);
-  w.me.applyDamage(60);
-  check('Withdraw shield absorbs damage first', w.me.shield === 40 && w.me.health === 100);
-
   for (const agent of AGENTS) {
-    const t = scene({ agent: agent.id, enemies: [[0, -5]] });
-    if (agent.id === 'jigglypuff') t.me.applyDamage(100);
-    t.set({ abilityQ: true });
-    t.run(0.4);
-    t.set({ abilityE: true });
-    t.run(0.4);
-    check(`${agent.name}: both abilities cast`, t.log.filter((l) => l[0] === 'abilityCast').length === 2);
+    const at = scene({ agent: agent.id, enemies: [[0, -5]] });
+    if (agent.id === 'jigglypuff') at.me.applyDamage(100);
+    at.set({ abilityQ: true });
+    at.run(0.4);
+    at.set({ abilityE: true });
+    at.run(0.4);
+    check(`${agent.name}: both abilities cast`, at.log.filter((l) => l[0] === 'abilityCast').length === 2);
   }
+}
+
+// ---------------------------------------------------------------- zoom, sniper, crouch
+{
+  // Right click toggles the rifle's zoom; a second click zooms out.
+  const z = scene();
+  z.set({ adsPressed: true });
+  z.run(0.3);
+  check('right click zooms the rifle', z.me.loadout.scoped && Math.abs(z.me.loadout.zoom - 1.25) < 1e-6);
+  z.set({ adsPressed: true });
+  z.run(0.4);
+  check('right click again zooms out', z.me.loadout.adsAmount === 0);
+  z.set({ adsHold: true, adsHeld: true });
+  z.run(0.3);
+  check('hold mode zooms while held', z.me.loadout.scoped);
+  z.set({ adsHold: true, adsHeld: false });
+  z.run(0.4);
+  check('hold mode zooms out on release', z.me.loadout.adsAmount === 0);
+  z.set({ adsHold: false });
+  z.set({ switchTo: 1 });
+  z.run(0.5);
+  z.set({ adsPressed: true });
+  z.run(0.3);
+  check('the pistol has no zoom', z.me.loadout.zoom === 1);
+
+  // Recoil: bullets follow the spray, the camera only a little.
+  const k = scene();
+  k.set({ fireHeld: true });
+  k.run(0.6);
+  k.set({ fireHeld: false });
+  const spray = k.me.aimPitch - k.me.pitch;
+  const cam = k.me.viewPitch - k.me.pitch;
+  check('the camera follows only part of the spray', spray > 0.04 && cam < spray * 0.5, `${spray.toFixed(3)} / ${cam.toFixed(3)}`);
+  k.run(1);
+  check('the spray settles after you stop', Math.abs(k.me.recoilPitch) < 0.002);
+
+  // Sniper: one body shot kills when scoped; hip fire is a gamble.
+  const sn = scene({ enemies: [[0, -25]] });
+  sn.me.loadout.setPrimary('sniper', sn.me, sn.ctx);
+  sn.run(1.5);
+  const hip = sn.me.loadout.spreadFor(sn.me);
+  sn.set({ adsPressed: true });
+  sn.run(0.4);
+  check('scoping the sniper makes it pin-point', sn.me.loadout.scoped && sn.me.loadout.spreadFor(sn.me) < 0.01 && hip > 3);
+  aimAt(sn.me, sn.foe, 1.1);
+  sn.set({ firePressed: true });
+  sn.run(0.05);
+  check('a scoped sniper body shot kills through full shield', !sn.foe.alive);
+  check('the sniper stays scoped after a shot', sn.me.loadout.scoped);
+  sn.set({ reload: true });
+  sn.run(0.05);
+  check('reloading takes you out of the scope', !sn.me.loadout.ads);
+  check('holding the sniper slows you down', sn.me.loadout.moveMultiplier < 1);
+
+  // Buying swaps slot 1 and keeps the pistol.
+  const lo = new Loadout(['rifle', 'pistol']);
+  lo.setPrimary('sniper');
+  check('buying a sniper replaces the rifle', lo.weapons[0].def.id === 'sniper' && lo.weapons[1].def.id === 'pistol');
+
+  // Crouching lowers your head out of a level shot.
+  const cr = scene({ enemies: [[0, -10]] });
+  const o = { x: 0, y: 1.58, z: 0 };
+  const d = { x: 0, y: 0, z: -1 };
+  const bot = { controller: {}, team: 'ally' };
+  check('a level shot hits a standing head', traceShot(o, d, bot, cr.ctx).part === 'head');
+  cr.foe.crouchAmt = 1;
+  check('the same shot misses a crouching head', traceShot(o, d, bot, cr.ctx).part !== 'head');
+  cr.set({ crouch: true, forward: 1 });
+  cr.run(0.6);
+  check('crouching is slower than walking', Math.hypot(cr.me.vel.x, cr.me.vel.z) <= MOVE.crouchSpeed + 0.01 && cr.me.crouchAmt === 1);
 }
 
 // ---------------------------------------------------------------- spike

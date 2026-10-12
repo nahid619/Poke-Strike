@@ -14,11 +14,12 @@ export const TEAM_COLORS = {
 export const MOVE = {
   runSpeed: 6.75,
   walkSpeed: 3.6,
-  accel: 10,        // ground acceleration
+  crouchSpeed: 2.9,
+  accel: 12,        // ground acceleration (snappy, like Valorant)
   airAccel: 10,     // air acceleration...
   airWishCap: 0.8,  // ...but only up to 0.8 m/s along your input, so you can
                     // steer a little mid-air but not build speed from a standstill
-  friction: 8,      // ground friction; makes counter-strafing work
+  friction: 10,     // ground friction; makes counter-strafing work
   stopSpeed: 1.5,   // friction acts as if at least this fast, so you stop crisply
   gravity: 20,
   jumpSpeed: 7,     // about 1.2 m jump height
@@ -36,6 +37,12 @@ export const HITBOX = {
   legsTop: 0.85, legsR: 0.3,
 };
 
+// Crouching (hold Ctrl): lower eyes and hitboxes, slower, steadier aim.
+export const CROUCH = {
+  scale: 0.68,      // body height multiplier when fully crouched
+  time: 0.12,       // seconds to crouch or stand
+};
+
 // How status effects behave (see build-plan section 4.5).
 export const STATUS = {
   stunSpeed: 0.6,    // movement multiplier while stunned
@@ -47,10 +54,11 @@ export const STATUS = {
 const IDLE_INTENT = Object.freeze({
   forward: 0, right: 0, walk: false, jump: false,
   fireHeld: false, firePressed: false, reload: false, switchTo: null, switchDelta: 0,
-  abilityQ: false, abilityE: false, interact: false,
+  abilityQ: false, abilityE: false, interact: false, crouch: false,
+  adsPressed: false, adsHeld: false, adsHold: false,
 });
 
-const freshStatus = () => ({ stun: 0, sleep: 0, slow: 0, slowFactor: 1, revealed: 0 });
+const freshStatus = () => ({ stun: 0, sleep: 0, slow: 0, slowFactor: 1, revealed: 0, blind: 0, blindMax: 0 });
 
 export class Character {
   constructor({
@@ -61,7 +69,8 @@ export class Character {
     this.team = team;
     this.radius = radius;
     this.height = height;
-    this.eyeHeight = eyeHeight;
+    this.standEyeHeight = eyeHeight;
+    this.crouchAmt = 0;  // 0 standing .. 1 fully crouched
     this.stepHeight = MOVE.stepHeight;
     this.maxHealth = maxHealth;
     this.maxShield = maxShield;
@@ -92,8 +101,10 @@ export class Character {
     this.controller = null;
     this.loadout = null;     // weapons, for anyone who carries them
     this.abilities = null;   // AbilityKit, for anyone playing an agent
-    this.recoilPitch = 0;    // view offset from weapon recoil (radians)
+    this.recoilPitch = 0;    // spray pattern: where bullets go, relative to your aim (radians)
     this.recoilYaw = 0;
+    this.punchPitch = 0;     // camera-only kick that springs back (radians)
+    this.punchYaw = 0;
     this.onHealthChange = null;
     this.mesh = buildBody(this);
   }
@@ -103,6 +114,14 @@ export class Character {
   get asleep() { return this.status.sleep > 0; }
   get stunned() { return this.status.stun > 0; }
   get revealed() { return this.status.revealed > 0; }
+  get blinded() { return this.status.blind > 0; }
+  /** 0..1 how white your screen is from a flash. */
+  get blindAmount() {
+    const b = this.status.blind;
+    return b > 0 ? Math.min(1, b / Math.min(0.6, this.status.blindMax || 0.6)) : 0;
+  }
+  get eyeHeight() { return this.standEyeHeight * (1 - (1 - CROUCH.scale) * this.crouchAmt); }
+  get bodyScale() { return 1 - (1 - CROUCH.scale) * this.crouchAmt; }
   get canUseAbilities() { return this.alive && !this.asleep && !this.stunned; }
 
   get speedMultiplier() {
@@ -112,8 +131,14 @@ export class Character {
     return m;
   }
 
-  get viewYaw() { return this.yaw + this.recoilYaw; }
-  get viewPitch() { return this.pitch + this.recoilPitch; }
+  /** How much of the spray pattern the camera follows (per weapon). */
+  get viewFollow() { return this.loadout?.current.def.recoil.view ?? 1; }
+  /** Where the camera looks: your aim, a little of the spray, plus the kick. */
+  get viewYaw() { return this.yaw + this.recoilYaw * this.viewFollow + this.punchYaw; }
+  get viewPitch() { return this.pitch + this.recoilPitch * this.viewFollow + this.punchPitch; }
+  /** Where bullets go before random spread: your aim plus the full spray pattern. */
+  get aimYaw() { return this.yaw + this.recoilYaw; }
+  get aimPitch() { return this.pitch + this.recoilPitch; }
 
   setController(controller) {
     this.controller?.detach?.(this);
@@ -139,6 +164,7 @@ export class Character {
     s[type] = Math.max(s[type] ?? 0, duration);
     if (type === 'slow') s.slowFactor = factor ?? STATUS.slowDefault;
     if (type === 'sleep') this.dash = null;
+    if (type === 'blind') s.blindMax = Math.max(s.blind, duration);
     this.onHealthChange?.(this);
   }
 
@@ -170,7 +196,7 @@ export class Character {
   _tickStatus(dt) {
     const s = this.status;
     let changed = false;
-    for (const key of ['stun', 'sleep', 'slow', 'revealed']) {
+    for (const key of ['stun', 'sleep', 'slow', 'revealed', 'blind']) {
       if (s[key] > 0) {
         s[key] = Math.max(0, s[key] - dt);
         if (s[key] === 0) changed = true;
@@ -211,11 +237,21 @@ export class Character {
     let intent = this.controller ? this.controller.getIntent(this, dt) : IDLE_INTENT;
     if (this.asleep) intent = IDLE_INTENT;
     else if (this.frozen) {
-      intent = { ...IDLE_INTENT, switchTo: intent.switchTo, switchDelta: intent.switchDelta, reload: intent.reload };
+      intent = {
+        ...IDLE_INTENT, switchTo: intent.switchTo, switchDelta: intent.switchDelta, reload: intent.reload,
+        crouch: intent.crouch, adsPressed: intent.adsPressed, adsHeld: intent.adsHeld, adsHold: intent.adsHold,
+      };
     }
     // Planting or defusing the spike locks you in place (you can still look).
     this.busy = ctx.objective ? ctx.objective.interact(this, intent, dt) : false;
-    if (this.busy) intent = { ...IDLE_INTENT, interact: true };
+    if (this.busy) intent = { ...IDLE_INTENT, interact: true, crouch: intent.crouch };
+
+    // Crouch smoothly toward the wanted height.
+    const crouchTarget = intent.crouch ? 1 : 0;
+    const cstep = dt / CROUCH.time;
+    this.crouchAmt = crouchTarget > this.crouchAmt
+      ? Math.min(crouchTarget, this.crouchAmt + cstep)
+      : Math.max(crouchTarget, this.crouchAmt - cstep);
 
     // Wish direction from facing + input.
     const sin = Math.sin(this.yaw);
@@ -229,8 +265,10 @@ export class Character {
     }
     this.wishDir.x = wishLen > 1e-6 ? wx : 0;
     this.wishDir.z = wishLen > 1e-6 ? wz : 0;
-    const baseSpeed = intent.walk ? MOVE.walkSpeed : MOVE.runSpeed;
-    const maxSpeed = wishLen > 1e-6 ? baseSpeed * this.speedMultiplier : 0;
+    let baseSpeed = intent.walk ? MOVE.walkSpeed : MOVE.runSpeed;
+    if (this.crouchAmt > 0.5) baseSpeed = Math.min(baseSpeed, MOVE.crouchSpeed);
+    const weaponMult = this.loadout?.moveMultiplier ?? 1;
+    const maxSpeed = wishLen > 1e-6 ? baseSpeed * this.speedMultiplier * weaponMult : 0;
 
     let jumped = false;
     if (this.dash) {
@@ -270,8 +308,12 @@ export class Character {
 
     // Stun: the aim drifts randomly.
     if (this.stunned) {
-      this.recoilPitch += (Math.random() - 0.5) * STATUS.stunShake;
-      this.recoilYaw += (Math.random() - 0.5) * STATUS.stunShake;
+      const sp = (Math.random() - 0.5) * STATUS.stunShake;
+      const sy = (Math.random() - 0.5) * STATUS.stunShake;
+      this.recoilPitch += sp;
+      this.recoilYaw += sy;
+      this.punchPitch += sp * 2;
+      this.punchYaw += sy * 2;
     }
 
     this.loadout?.tick(dt, intent, this, ctx);
@@ -313,15 +355,16 @@ export class Character {
     if (!this.alive) return null;
     const p = at;
     const H = HITBOX;
+    const k = this.bodyScale; // crouching lowers every hitbox
     // Cheap reject first: a sphere around the whole body.
     if (raySphere(o, d, p.x, p.y + 0.9, p.z, 1.1, maxT) === null) return null;
 
     let best = null;
-    const head = raySphere(o, d, p.x, p.y + H.headY, p.z, H.headR, maxT);
+    const head = raySphere(o, d, p.x, p.y + H.headY * k, p.z, H.headR, maxT);
     if (head !== null) best = { t: head, part: 'head' };
-    const body = rayCylinder(o, d, p.x, p.z, H.bodyR, p.y + H.legsTop, p.y + H.bodyTop, best ? best.t : maxT);
+    const body = rayCylinder(o, d, p.x, p.z, H.bodyR, p.y + H.legsTop * k, p.y + H.bodyTop * k, best ? best.t : maxT);
     if (body !== null) best = { t: body, part: 'body' };
-    const legs = rayCylinder(o, d, p.x, p.z, H.legsR, p.y, p.y + H.legsTop, best ? best.t : maxT);
+    const legs = rayCylinder(o, d, p.x, p.z, H.legsR, p.y, p.y + H.legsTop * k, best ? best.t : maxT);
     if (legs !== null) best = { t: legs, part: 'legs' };
     return best;
   }
@@ -364,6 +407,9 @@ export class Character {
     this.deathTime = 0;
     this.recoilPitch = 0;
     this.recoilYaw = 0;
+    this.punchPitch = 0;
+    this.punchYaw = 0;
+    this.crouchAmt = 0;
     this.loadout?.refill();
     this.abilities?.reset();
     this.onHealthChange?.(this);
@@ -395,6 +441,17 @@ export class Character {
     this.mesh.rotation.x = fall * fall * (Math.PI / 2) * 0.95;
 
     const parts = this.mesh.userData;
+    const k = this.bodyScale;
+    if (parts.body && parts.lastScale !== k) {
+      parts.lastScale = k;
+      parts.body.scale.y = k;
+      parts.body.position.y = (HITBOX.bodyTop / 2) * k;
+      parts.head.position.y = HITBOX.headY * k;
+      parts.visor.position.y = (HITBOX.headY + 0.02) * k;
+      parts.rb.scale.y = k;
+      parts.rb.position.y = parts.body.position.y;
+      parts.rh.position.y = parts.head.position.y;
+    }
     parts.reveal.visible = this.alive && this.revealed;
     parts.stunRing.visible = this.alive && this.stunned;
     if (parts.stunRing.visible) parts.stunRing.rotation.z += 0.15;
@@ -508,6 +565,6 @@ function buildBody(c) {
   sleepIcon.visible = false;
   group.add(sleepIcon);
 
-  group.userData = { reveal, stunRing, sleepIcon };
+  group.userData = { reveal, stunRing, sleepIcon, body, head, visor, rb, rh, lastScale: 1 };
   return group;
 }

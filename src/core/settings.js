@@ -6,6 +6,8 @@ import { load, save } from './storage.js';
 export const DEFAULT_SETTINGS = {
   // Mouse
   sensitivity: 0.5,
+  scopedSensitivity: 1,    // multiplier while zoomed (1 = feels the same on screen)
+  adsMode: 'toggle',       // right click: 'toggle' (click again to unzoom) or 'hold'
   rawInput: true,          // unaccelerated mouse input (Chrome, Edge, Brave)
   // Display
   fov: 103,                // horizontal degrees, like Valorant
@@ -14,13 +16,16 @@ export const DEFAULT_SETTINGS = {
   // Audio
   volume: 0.6,
   // Crosshair
-  crosshairColor: '#ffffff',
-  crosshairStyle: 'cross', // 'cross', 'dot', or 'both'
+  crosshairColor: '#5ef08a',
+  crosshairStyle: 'dot',   // 'dot', 'cross', 'both' (cross + dot), or 'circle' (circle + dot)
+  crosshairDotSize: 3,
+  crosshairOpacity: 1,
   crosshairLength: 6,
   crosshairThickness: 2,
   crosshairGap: 3,
   crosshairOutline: true,
-  crosshairDynamic: true,  // opens up with movement and spray error
+  crosshairMovementError: false, // opens up when you move (off, like Valorant's defaults)
+  crosshairFiringError: false,   // opens up when you spray
   // Gameplay
   takeover: true,          // when you die: take over a teammate (or only spectate)
   // Testing
@@ -35,6 +40,18 @@ for (const key of ['takeover', 'botMode']) {
   if (saved[key] === undefined && legacy[key] !== undefined) saved[key] = legacy[key];
 }
 
+// Version 2: the crosshair stays still by default. Older saves had it opening
+// up with movement and spray, which made it jump around, so switch that off
+// (and move the old default cross to the new default dot).
+if ((saved.settingsVersion ?? 1) < 2 && Object.keys(saved).length) {
+  delete saved.crosshairDynamic;
+  saved.crosshairMovementError = false;
+  saved.crosshairFiringError = false;
+  if (saved.crosshairStyle === undefined || saved.crosshairStyle === 'cross') saved.crosshairStyle = 'dot';
+}
+delete saved.crosshairDynamic;
+saved.settingsVersion = 2;
+
 export const settings = { ...DEFAULT_SETTINGS, ...saved };
 
 export function saveSettings() {
@@ -42,9 +59,18 @@ export function saveSettings() {
 }
 
 export function resetSettings() {
-  Object.assign(settings, DEFAULT_SETTINGS);
+  Object.assign(settings, DEFAULT_SETTINGS, { settingsVersion: 2 });
   saveSettings();
 }
+
+/** One-click crosshair looks. Each sets several crosshair settings. */
+export const CROSSHAIR_PRESETS = {
+  dot: { crosshairStyle: 'dot', crosshairDotSize: 3, crosshairOutline: true },
+  smalldot: { crosshairStyle: 'dot', crosshairDotSize: 2, crosshairOutline: true },
+  classic: { crosshairStyle: 'cross', crosshairLength: 6, crosshairThickness: 2, crosshairGap: 3, crosshairOutline: true },
+  classicdot: { crosshairStyle: 'both', crosshairLength: 5, crosshairThickness: 2, crosshairGap: 4, crosshairDotSize: 2, crosshairOutline: true },
+  circle: { crosshairStyle: 'circle', crosshairGap: 6, crosshairThickness: 1, crosshairDotSize: 2, crosshairOutline: true },
+};
 
 /** What each graphics quality level means. */
 export const QUALITY = {
@@ -60,12 +86,14 @@ export const CROSSHAIR_COLORS = ['#ffffff', '#5ef08a', '#ffe14a', '#4fd1ff', '#f
 // ---------------------------------------------------------------------------
 const CODE_PREFIX = 'PS1.';
 const LIMITS = {
-  sensitivity: [0.05, 2], fov: [80, 120], volume: [0, 1],
+  sensitivity: [0.05, 2], scopedSensitivity: [0.2, 2], fov: [80, 120], volume: [0, 1],
   crosshairLength: [2, 14], crosshairThickness: [1, 5], crosshairGap: [0, 12],
+  crosshairDotSize: [1, 8], crosshairOpacity: [0.3, 1],
 };
 const CHOICES = {
   quality: ['low', 'medium', 'high'],
-  crosshairStyle: ['cross', 'dot', 'both'],
+  adsMode: ['toggle', 'hold'],
+  crosshairStyle: ['cross', 'dot', 'both', 'circle'],
   botMode: ['idle', 'wander', 'fight'],
 };
 

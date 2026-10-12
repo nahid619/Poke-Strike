@@ -50,8 +50,11 @@
       <div id="fx-sleep" class="fx" hidden><span>Asleep</span></div>
     </div>
 
+    <!-- Sniper scope: dark edges, fine reticle. Shown when fully scoped in. -->
+    <div id="scope" aria-hidden="true"><i class="lens"></i><i class="h"></i><i class="v"></i><b></b></div>
+
     <div id="hud" aria-hidden="true">
-      <div id="crosshair" class="xh"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i><i class="d"></i></div>
+      <div id="crosshair" class="xh"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i><i class="d"></i><i class="o"></i></div>
       <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
       <div id="damage-text"></div>
 
@@ -79,14 +82,21 @@
       </div>
       <div id="hurt"><i></i></div>
 
+      <div id="buy-hint" hidden><kbd>B</kbd> Buy a weapon</div>
+      <div id="buy" hidden>
+        <h4>Buy <small>press a number</small></h4>
+        <ol id="buy-list"></ol>
+        <p><kbd>B</kbd> close</p>
+      </div>
+
       <div id="hud-abilities" hidden>
         <div class="ab" id="ab-q" data-state="ready">
           <i class="ab-fill" id="ab-q-fill"></i>
-          <kbd>Q</kbd><span class="ab-name" id="ab-q-name"></span><span class="ab-cd" id="ab-q-cd"></span>
+          <kbd>Q</kbd><span class="ab-name" id="ab-q-name"></span><span class="ab-ch" id="ab-q-ch"></span><span class="ab-cd" id="ab-q-cd"></span>
         </div>
         <div class="ab" id="ab-e" data-state="ready">
           <i class="ab-fill" id="ab-e-fill"></i>
-          <kbd>E</kbd><span class="ab-name" id="ab-e-name"></span><span class="ab-cd" id="ab-e-cd"></span>
+          <kbd>E</kbd><span class="ab-name" id="ab-e-name"></span><span class="ab-ch" id="ab-e-ch"></span><span class="ab-cd" id="ab-e-cd"></span>
         </div>
       </div>
 
@@ -109,6 +119,9 @@
         <div id="hud-reload" hidden><span>Reloading</span><div class="bar"><i id="hud-reload-fill"></i></div></div>
       </div>
     </div>
+
+    <!-- Flashed: covers the HUD too, like a real flash. -->
+    <div id="fx-blind" aria-hidden="true" hidden></div>
 
     <div id="scoreboard" hidden></div>
 
@@ -195,6 +208,7 @@
             <span class="label">Weapon</span>
             <div class="seg" role="radiogroup" aria-label="Weapon">
               <button type="button" data-weapon="rifle" role="radio">Rifle</button>
+              <button type="button" data-weapon="sniper" role="radio">Sniper</button>
               <button type="button" data-weapon="pistol" role="radio">Pistol</button>
             </div>
           </div>
@@ -242,6 +256,17 @@
               <input data-setting="sensitivity" type="range" min="0.05" max="2" step="0.01" />
             </label>
             <p class="hint">Same scale as Valorant, so you can use your usual value.</p>
+            <label class="setting">
+              <span>Scoped sensitivity multiplier <output data-out="scopedSensitivity"></output></span>
+              <input data-setting="scopedSensitivity" type="range" min="0.2" max="2" step="0.01" />
+            </label>
+            <div class="field">
+              <span class="label">Right click (zoom and scope)</span>
+              <div class="seg" role="radiogroup" aria-label="Zoom mode">
+                <button type="button" role="radio" data-choice="adsMode" data-value="toggle">Toggle</button>
+                <button type="button" role="radio" data-choice="adsMode" data-value="hold">Hold</button>
+              </div>
+            </div>
             <label class="check"><input data-setting="rawInput" type="checkbox" /><span>Raw mouse input (no acceleration)</span></label>
           </section>
 
@@ -271,7 +296,7 @@
             <h3>Crosshair</h3>
             <div class="xh-row">
               <div class="xh-preview" aria-hidden="true">
-                <div class="xh" id="xh-preview"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i><i class="d"></i></div>
+                <div class="xh" id="xh-preview"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i><i class="d"></i><i class="o"></i></div>
               </div>
               <div class="xh-controls">
                 <div class="field">
@@ -279,13 +304,32 @@
                   <div class="swatches" id="xh-colors" role="radiogroup" aria-label="Crosshair color"></div>
                 </div>
                 <div class="field">
-                  <span class="label">Style</span>
-                  <div class="seg" role="radiogroup" aria-label="Crosshair style">
-                    <button type="button" role="radio" data-choice="crosshairStyle" data-value="cross">Cross</button>
-                    <button type="button" role="radio" data-choice="crosshairStyle" data-value="dot">Dot</button>
-                    <button type="button" role="radio" data-choice="crosshairStyle" data-value="both">Both</button>
+                  <span class="label">Presets</span>
+                  <div class="seg presets" aria-label="Crosshair presets">
+                    <button type="button" data-preset="dot">Dot</button>
+                    <button type="button" data-preset="smalldot">Small dot</button>
+                    <button type="button" data-preset="classic">Classic</button>
+                    <button type="button" data-preset="classicdot">Classic + dot</button>
+                    <button type="button" data-preset="circle">Circle dot</button>
                   </div>
                 </div>
+                <div class="field">
+                  <span class="label">Style</span>
+                  <div class="seg" role="radiogroup" aria-label="Crosshair style">
+                    <button type="button" role="radio" data-choice="crosshairStyle" data-value="dot">Dot</button>
+                    <button type="button" role="radio" data-choice="crosshairStyle" data-value="cross">Cross</button>
+                    <button type="button" role="radio" data-choice="crosshairStyle" data-value="both">Cross + dot</button>
+                    <button type="button" role="radio" data-choice="crosshairStyle" data-value="circle">Circle + dot</button>
+                  </div>
+                </div>
+                <label class="setting">
+                  <span>Dot size <output data-out="crosshairDotSize"></output></span>
+                  <input data-setting="crosshairDotSize" type="range" min="1" max="8" step="1" />
+                </label>
+                <label class="setting">
+                  <span>Opacity <output data-out="crosshairOpacity"></output></span>
+                  <input data-setting="crosshairOpacity" type="range" min="0.3" max="1" step="0.05" />
+                </label>
                 <label class="setting">
                   <span>Line length <output data-out="crosshairLength"></output></span>
                   <input data-setting="crosshairLength" type="range" min="2" max="14" step="1" />
@@ -299,7 +343,8 @@
                   <input data-setting="crosshairGap" type="range" min="0" max="12" step="1" />
                 </label>
                 <label class="check"><input data-setting="crosshairOutline" type="checkbox" /><span>Dark outline</span></label>
-                <label class="check"><input data-setting="crosshairDynamic" type="checkbox" /><span>Open up with movement and spray</span></label>
+                <label class="check"><input data-setting="crosshairMovementError" type="checkbox" /><span>Movement error (opens up when you move)</span></label>
+                <label class="check"><input data-setting="crosshairFiringError" type="checkbox" /><span>Firing error (opens up when you spray)</span></label>
               </div>
             </div>
           </section>
@@ -357,15 +402,18 @@
               <dt>W A S D</dt><dd>Move</dd>
               <dt>Space</dt><dd>Jump</dd>
               <dt>Shift (hold)</dt><dd>Walk quietly. Bots can't hear you.</dd>
+              <dt>C (hold)</dt><dd>Crouch: smaller target, steadier spray</dd>
             </dl>
           </div>
           <div>
             <h3>Shooting</h3>
             <dl class="controls">
               <dt>Left click</dt><dd>Shoot</dd>
+              <dt>Right click</dt><dd>Zoom (rifle) or scope (sniper). Again to zoom out.</dd>
               <dt>R</dt><dd>Reload</dd>
-              <dt>1 / 2</dt><dd>Rifle / pistol</dd>
+              <dt>1 / 2</dt><dd>Primary / pistol</dd>
               <dt>Mouse wheel</dt><dd>Switch weapon</dd>
+              <dt>B</dt><dd>Buy menu: rifle or sniper (before a round, or any time in the test range)</dd>
             </dl>
           </div>
           <div>

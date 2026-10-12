@@ -1,4 +1,10 @@
 import { SPIKE } from '../game/spike.js';
+import { WEAPONS, PRIMARIES } from '../data/weapons.js';
+
+const BUY_INFO = {
+  rifle: 'Automatic. One-shot headshots. Right click: zoom 1.25x.',
+  sniper: 'Bolt action. One-shot body shots. Right click: scope 2.5x.',
+};
 // In-match HUD: health, shield, ammo, weapon slots, crosshair, hit markers.
 // Text is only written to the DOM when it changes.
 
@@ -27,8 +33,8 @@ export class Hud {
       agentRole: $('hud-agent-role'),
       abilities: $('hud-abilities'),
       ab: {
-        q: { root: $('ab-q'), name: $('ab-q-name'), cd: $('ab-q-cd'), fill: $('ab-q-fill') },
-        e: { root: $('ab-e'), name: $('ab-e-name'), cd: $('ab-e-cd'), fill: $('ab-e-fill') },
+        q: { root: $('ab-q'), name: $('ab-q-name'), cd: $('ab-q-cd'), fill: $('ab-q-fill'), ch: $('ab-q-ch') },
+        e: { root: $('ab-e'), name: $('ab-e-name'), cd: $('ab-e-cd'), fill: $('ab-e-fill'), ch: $('ab-e-ch') },
       },
       fx: {
         smoke: $('fx-smoke'), sleep: $('fx-sleep'), stun: $('fx-stun'),
@@ -42,6 +48,7 @@ export class Hud {
       board: $('scoreboard'),
       callouts: $('callouts'),
       mhSide: $('mh-side'), announce: $('announce'),
+      buy: $('buy'), buyList: $('buy-list'), buyHint: $('buy-hint'),
       objective: $('objective'), objText: $('objective-text'), objBar: $('objective-bar'), objFill: $('objective-fill'),
     };
     this.cache = {};
@@ -77,7 +84,7 @@ export class Hud {
       });
       this._set('reserve', L.infiniteAmmo ? '\u221e' : w.reserve, (v) => (e.reserve.textContent = v));
       this._set('weapon', w.def.name, (v) => (e.weapon.textContent = v));
-      this._set('slots', L.index + ':' + L.weapons.length, () => {
+      this._set('slots', L.index + ':' + L.weapons.map((x) => x.def.id).join(','), () => {
         e.slots.innerHTML = L.weapons
           .map((x, i) => `<li class="${i === L.index ? 'on' : ''}"><b>${i + 1}</b>${x.def.name}</li>`)
           .join('');
@@ -108,14 +115,29 @@ export class Hud {
       const s = kit.slots[key];
       const ui = e.ab[key];
       const full = s.def.cooldown * kit.cooldownScale;
-      const state = s.marker ? 'armed' : s.cooldown > 0 ? 'cooling' : !player.canUseAbilities ? 'blocked' : 'ready';
+      const state = s.marker ? 'armed' : !s.ready ? 'cooling' : !player.canUseAbilities ? 'blocked' : 'ready';
       this._set(key + 'name', s.def.name, (v) => (ui.name.textContent = v));
       this._set(key + 'state', state, (v) => (ui.root.dataset.state = v));
-      const text = s.marker ? 'Press to return' : s.cooldown > 0 ? String(Math.ceil(s.cooldown)) : '';
+      const text = s.marker ? 'Press to return' : !s.ready ? String(Math.ceil(s.cooldown)) : '';
       this._set(key + 'cd', text, (v) => (ui.cd.textContent = v));
-      const pct = s.cooldown > 0 && full > 0 ? Math.round((s.cooldown / full) * 100) : 0;
+      const pct = !s.ready && full > 0 ? Math.round((s.cooldown / full) * 100) : 0;
       this._set(key + 'fill', pct, (v) => (ui.fill.style.height = `${v}%`));
+      // Charges: one pip per use you can hold.
+      const pips = s.max > 1 ? '\u25cf'.repeat(s.charges) + '\u25cb'.repeat(s.max - s.charges) : '';
+      if (ui.ch) this._set(key + 'ch', pips, (v) => (ui.ch.textContent = v));
     }
+  }
+
+  /** The buy menu (B) and the hint that it exists. */
+  buyMenu({ open, canBuy, primary, hint }) {
+    const e = this.el;
+    if (!e.buy) return;
+    this._set('buy', `${open}|${primary}`, () => {
+      e.buy.hidden = !open;
+      e.buyList.innerHTML = PRIMARIES.map((id, i) => `
+        <li class="${id === primary ? 'on' : ''}"><kbd>${i + 1}</kbd><b>${WEAPONS[id].name}</b><span>${BUY_INFO[id] ?? ''}</span></li>`).join('');
+    });
+    this._set('buyHint', !!(hint && canBuy && !open), (v) => (e.buyHint.hidden = !v));
   }
 
   /** Full-screen feedback for what is happening to you. */
@@ -130,6 +152,7 @@ export class Hud {
     if (flags.slow) chips.push('Slowed');
     if (flags.heal) chips.push('Healing');
     if (flags.revealed) chips.push('Revealed');
+    if (flags.blind) chips.push('Blinded');
     this._set('chips', chips.join('|'), () => {
       e.chips.innerHTML = chips.map((c) => `<li>${c}</li>`).join('');
     });

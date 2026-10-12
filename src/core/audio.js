@@ -80,6 +80,7 @@ export class Sound {
     if (!this.ctx || volume < 0.02) return;
     const t = this.ctx.currentTime;
     const out = this._bus(volume, pan);
+    if (weaponId === 'sniper') return this._sniperShot(t, out, volume);
     const pistol = weaponId === 'pistol';
     const r = 0.92 + Math.random() * 0.16;
     // crack (distant shots lose their high end)
@@ -91,6 +92,29 @@ export class Sound {
     this._tone(t, { duration: 0.12, gain: pistol ? 0.45 : 0.6, freq: pistol ? 190 : 150, to: 45, out });
     // short room tail
     this._noise(t + 0.02, { duration: 0.35, gain: 0.08, type: 'lowpass', freq: 900, q: 0.3, out });
+  }
+
+  _sniperShot(t, out, volume) {
+    const far = volume < 0.4;
+    const r = 0.95 + Math.random() * 0.1;
+    // A big supersonic crack, a deep boom, and a long tail.
+    this._noise(t, { duration: 0.2, gain: 0.95, freq: far ? 900 : 2200, q: 0.6, rate: r, out });
+    this._noise(t, { duration: 0.45, gain: 0.7, type: 'lowpass', freq: far ? 1500 : 4200, sweepTo: 160, q: 0.5, rate: r, out });
+    this._tone(t, { duration: 0.32, gain: 0.85, freq: 110, to: 32, out });
+    this._noise(t + 0.03, { duration: 0.9, gain: 0.12, type: 'lowpass', freq: 700, q: 0.3, out });
+    // Bolt: back, then forward.
+    if (!far) {
+      this._noise(t + 0.42, { duration: 0.05, gain: 0.3, freq: 2600, q: 3, out });
+      this._noise(t + 0.62, { duration: 0.06, gain: 0.35, freq: 3400, q: 3, out });
+    }
+  }
+
+  /** Zoom in or out (right click). */
+  scope(zoomIn) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this._noise(t, { duration: 0.06, gain: 0.18, freq: zoomIn ? 2200 : 1600, q: 2 });
+    this._tone(t, { duration: 0.05, gain: 0.05, freq: zoomIn ? 900 : 700, type: 'triangle' });
   }
 
   spikeBeep(volume = 1, pan = 0) {
@@ -225,6 +249,26 @@ export class Sound {
         break;
       case 'heal':
         [784, 988, 1175].forEach((f, i) => _tone(t + i * 0.09, { duration: 0.4, gain: 0.12, freq: f }));
+        break;
+      case 'throw':
+        _noise(t, { duration: 0.18, gain: 0.35, freq: 900, sweepTo: 2400, q: 1 });
+        break;
+      case 'bounce':
+        _tone(t, { duration: 0.06, gain: 0.2, freq: 520, to: 300, type: 'triangle' });
+        break;
+      case 'flash':
+        _noise(t, { duration: 0.25, gain: 0.6, freq: 5000, q: 0.5 });
+        _tone(t, { duration: 0.6, gain: 0.12, freq: 3200, to: 2400 });
+        break;
+      case 'trap':
+        _tone(t, { duration: 0.2, gain: 0.14, freq: 500, to: 900, type: 'triangle' });
+        _noise(t, { duration: 0.2, gain: 0.2, type: 'lowpass', freq: 1200, q: 0.6 });
+        break;
+      case 'alarm':
+        [1100, 800, 1100].forEach((f, i) => _tone(t + i * 0.1, { duration: 0.09, gain: 0.16, freq: f, type: 'square' }));
+        break;
+      case 'ping':
+        _tone(t, { duration: 0.7, gain: 0.16, freq: 1500, to: 1100 });
         break;
       case 'denied':
         _tone(t, { duration: 0.08, gain: 0.12, freq: 220, type: 'square' });

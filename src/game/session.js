@@ -12,10 +12,17 @@ import { AbilityKit } from './abilities.js';
 import { AbilityFx } from './abilityfx.js';
 import { Zones } from './zones.js';
 import { buildLevel } from './level.js';
-import { DEFAULT_LOADOUT } from '../data/weapons.js';
+import { loadoutWith, PRIMARIES } from '../data/weapons.js';
+import { load, save } from '../core/storage.js';
+
+/** The primary weapon you last picked in the buy menu. */
+export const savedPrimary = () => {
+  const id = load('primary', 'rifle');
+  return PRIMARIES.includes(id) ? id : 'rifle';
+};
 
 export class Session {
-  constructor({ map, renderer, sound, hud, viewmodel, controller, loadout = DEFAULT_LOADOUT }) {
+  constructor({ map, renderer, sound, hud, viewmodel, controller, loadout = loadoutWith(savedPrimary()) }) {
     this.map = map;
     this.human = controller; // the keyboard-and-mouse controller
     this.sound = sound;
@@ -96,8 +103,26 @@ export class Session {
   /** Mode-specific logic, after everyone has moved. */
   onTick() {}
 
+  // ---- buy menu ----
+
+  /** Can you change guns right now? The test range: always. Modes override this. */
+  canBuy() {
+    return this.controlled === this.player && this.player.alive && !!this.player.loadout && this.player.loadout.weapons.length > 1;
+  }
+
+  /** Pick your primary weapon (slot 1). Remembered for next time. */
+  buyPrimary(id) {
+    if (!this.canBuy() || !PRIMARIES.includes(id)) return false;
+    save('primary', id);
+    const L = this.player.loadout;
+    const changed = L.setPrimary(id, this.player, this.ctx);
+    if (L.index !== 0) L.switchTo(0, this.player, this.ctx);
+    return changed;
+  }
+
   /** `holdSeen`: a click is waiting for the next tick (see Character.syncMesh). */
   syncMeshes(alpha, holdSeen = false) {
+    this.alpha = alpha;
     for (const c of this.ctx.characters) c.syncMesh(alpha, holdSeen);
   }
 
@@ -105,7 +130,7 @@ export class Session {
   updateVisuals(dt, camera) {
     this._drawShots(camera);
     this.effects.update(dt);
-    this.abilityFx.update(dt, this.ctx.time);
+    this.abilityFx.update(dt, this.ctx.time, this.alpha ?? 1);
     this.spikeFx?.update(dt, this);
   }
 
@@ -183,6 +208,25 @@ export class Session {
       sound.ability(e.ability.sound, Math.min(1, 1 / (1 + d / 6)), -Math.sin(angle) * Math.min(1, d / 3));
     });
     events.on('abilityDenied', (e) => mine(e) && sound.ability('denied'));
+
+    // Thrown abilities, traps, and recon: sounds placed where they happen.
+    const at = (pos, kind, near = 6) => {
+      const L = this.listener;
+      const dx = pos.x - L.x;
+      const dz = pos.z - L.z;
+      const d = Math.hypot(dx, dz);
+      const angle = Math.atan2(-dx, -dz) - L.yaw;
+      sound.ability(kind, Math.min(1, 1 / (1 + d / near)), -Math.sin(angle) * Math.min(1, d / 3));
+    };
+    events.on('payload', (e) => at(e.point, e.kind === 'flash' ? 'flash' : e.kind === 'fire' ? 'flame'
+      : e.kind === 'concuss' ? 'zap' : e.kind === 'sleep' ? 'sing' : 'reveal', 10));
+    events.on('projectileBounce', (p) => at(p, 'bounce', 4));
+    events.on('reconPulse', (e) => at(e.zone, 'ping', 12));
+    events.on('trapTriggered', (e) => {
+      const me = this.controlled;
+      if (e.victim === me || e.owner?.team === me.team) sound.ability('alarm');
+      if (e.owner?.team === me.team && e.victim !== me) hud.callout?.(e.owner === me ? 'Your trap' : e.owner.name, `Trap caught ${e.victim.name}`);
+    });
   }
 }
 

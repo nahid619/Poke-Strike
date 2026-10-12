@@ -8,6 +8,8 @@ const sphereGeometry = new THREE.SphereGeometry(1, 24, 16);
 const fireGeometry = new THREE.CylinderGeometry(1, 1, 0.06, 20);
 const pillarGeometry = new THREE.CylinderGeometry(0.06, 0.06, 2.6, 8);
 pillarGeometry.translate(0, 1.3, 0);
+const orbGeometry = new THREE.SphereGeometry(1, 14, 10);
+const domeGeometry = new THREE.SphereGeometry(1, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
 const coneGeometry = new THREE.ConeGeometry(1, 1, 24, 1, true);
 coneGeometry.translate(0, -0.5, 0); // apex at the origin, opening toward -Y
 
@@ -23,6 +25,7 @@ export class AbilityFx {
     this.items = [];           // short-lived effects
     this.zones = new Map();    // zone id -> visual
     this.markers = new Map();  // marker object -> visual
+    this.projectiles = new Map(); // projectile -> visual
     this.time = 0;
 
     events.on('abilityCast', (e) => this._onCast(e));
@@ -30,6 +33,14 @@ export class AbilityFx {
     events.on('zoneEnd', (z) => this._zoneEnd(z));
     events.on('markerPlaced', (e) => this._markerPlaced(e));
     events.on('markerEnd', (e) => this._markerEnd(e));
+    events.on('projectileStart', (p) => this._projectileStart(p));
+    events.on('projectileEnd', (p) => this._projectileEnd(p));
+    events.on('payload', (e) => this._onPayload(e));
+    events.on('reconPulse', (e) => this._onReconPulse(e));
+    events.on('trapTriggered', (e) => {
+      this.burst({ x: e.trap.x, y: e.trap.y + 0.6, z: e.trap.z }, 0x4fb4ff, 2.2, 0.5, 0.35);
+      this.ring(e.trap, 0x4fb4ff, 2.6, 0.5);
+    });
   }
 
   // ---- building blocks ----
@@ -112,7 +123,69 @@ export class AbilityFx {
       case 'heal':
         this.ring(feet, 0x5ee08a, 1.5, 0.6);
         break;
+      case 'aura':
+        this.ring(feet, a.color, a.radius, 0.7);
+        for (const c of e.helped ?? []) {
+          this.burst({ x: c.pos.x, y: c.pos.y + 1.1, z: c.pos.z }, a.color, 1.1, 0.6, 0.35);
+        }
+        break;
+      case 'trap':
+        if (e.point) this.ring(e.point, a.color, 1.2, 0.4);
+        break;
     }
+  }
+
+  // ---- thrown abilities ----
+
+  _projectileStart(p) {
+    const group = new THREE.Group();
+    const core = new THREE.Mesh(orbGeometry, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    core.scale.setScalar(0.07);
+    const glow = new THREE.Mesh(orbGeometry, additive(p.color ?? 0xffffff, 0.55, THREE.FrontSide));
+    glow.scale.setScalar(0.16);
+    group.add(core, glow);
+    group.position.set(p.x, p.y, p.z);
+    this.scene.add(group);
+    this.projectiles.set(p, { root: group, glow, core, trailAt: 0 });
+  }
+
+  _projectileEnd(p) {
+    const v = this.projectiles.get(p);
+    if (!v) return;
+    v.root.removeFromParent();
+    v.core.material.dispose();
+    v.glow.material.dispose();
+    this.projectiles.delete(p);
+  }
+
+  _onPayload({ kind, point, payload, projectile }) {
+    const color = projectile.color ?? 0xffffff;
+    switch (kind) {
+      case 'flash':
+        // A short, very bright pop.
+        this.burst(point, 0xffffff, 2.4, 0.25, 0.9);
+        this.burst(point, color, 4, 0.4, 0.35);
+        break;
+      case 'fire':
+        this.burst(point, 0xff7a2a, 1.6, 0.35, 0.5);
+        break;
+      case 'concuss':
+      case 'sleep': {
+        const feet = { x: point.x, y: point.y - 0.8, z: point.z };
+        this.ring(feet, color, payload.radius, 0.6);
+        this.burst(point, color, payload.radius, 0.5, 0.18);
+        break;
+      }
+      case 'recon':
+        this.puff(point, color, 0.5);
+        break;
+    }
+  }
+
+  _onReconPulse({ zone }) {
+    // A sweeping shell that shows how far the eye can see.
+    this.burst(zone, 0xff5ad8, zone.radius, 0.9, 0.05);
+    this.ring({ x: zone.x, y: zone.y - 0.5, z: zone.z }, 0xff5ad8, 3, 0.5);
   }
 
   // ---- zones ----
@@ -135,6 +208,24 @@ export class AbilityFx {
       group.position.set(z.x, z.y, z.z);
       group.scale.setScalar(0.01);
       visual = { root: group, mat, zone: z };
+    } else if (z.kind === 'trap') {
+      const group = new THREE.Group();
+      const dome = new THREE.Mesh(domeGeometry, additive(z.color ?? 0x4fb4ff, 0.22, THREE.FrontSide));
+      dome.scale.set(0.35, 0.22, 0.35);
+      const ring = new THREE.Mesh(ringGeometry, additive(z.color ?? 0x4fb4ff, 0.3));
+      ring.scale.setScalar(z.radius);
+      group.add(dome, ring);
+      group.position.set(z.x, z.y + 0.03, z.z);
+      visual = { root: group, dome, ring, zone: z, mats: [dome.material, ring.material] };
+    } else if (z.kind === 'recon') {
+      const group = new THREE.Group();
+      const eye = new THREE.Mesh(orbGeometry, additive(0xff5ad8, 0.9, THREE.FrontSide));
+      eye.scale.setScalar(0.18);
+      const core = new THREE.Mesh(orbGeometry, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      core.scale.setScalar(0.08);
+      group.add(eye, core);
+      group.position.set(z.x, z.y, z.z);
+      visual = { root: group, eye, zone: z, mats: [eye.material, core.material] };
     } else {
       // Patches overlap, so the base uses normal blending (stays orange
       // instead of stacking up to white) with a faint additive glow on top.
@@ -158,6 +249,7 @@ export class AbilityFx {
     const v = this.zones.get(z.id);
     if (!v) return;
     v.root.removeFromParent();
+    for (const m of v.mats ?? []) if (z.kind === 'trap' || z.kind === 'recon') m.dispose();
     this.zones.delete(z.id);
   }
 
@@ -190,11 +282,27 @@ export class AbilityFx {
     this.zones.clear();
     for (const v of this.markers.values()) v.root.removeFromParent();
     this.markers.clear();
+    for (const v of this.projectiles.values()) v.root.removeFromParent();
+    this.projectiles.clear();
   }
 
   /** time = game time, so smoke and fire animate in step with the game. */
-  update(dt, time) {
+  update(dt, time, alpha = 1) {
     this.time += dt;
+    // Projectiles move at the game's tick rate; draw them between ticks.
+    for (const [p, v] of this.projectiles) {
+      v.root.position.set(
+        p.prev.x + (p.x - p.prev.x) * alpha,
+        p.prev.y + (p.y - p.prev.y) * alpha,
+        p.prev.z + (p.z - p.prev.z) * alpha,
+      );
+      v.glow.scale.setScalar(0.16 + 0.03 * Math.sin(this.time * 30));
+      v.trailAt -= dt;
+      if (v.trailAt <= 0) {
+        v.trailAt = 0.03;
+        this.burst(v.root.position, p.color ?? 0xffffff, 0.12, 0.25, 0.35);
+      }
+    }
     for (let i = this.items.length - 1; i >= 0; i--) {
       const it = this.items[i];
       it.life -= dt;
@@ -210,6 +318,16 @@ export class AbilityFx {
       const z = v.zone;
       const age = time - z.start;
       const left = z.until - time;
+      if (z.kind === 'trap') {
+        const armed = time >= z.armAt;
+        v.ring.material.opacity = armed ? 0.12 + 0.06 * Math.sin(this.time * 3) : 0.35;
+        v.dome.material.opacity = armed ? 0.25 : 0.12;
+        continue;
+      }
+      if (z.kind === 'recon') {
+        v.eye.scale.setScalar(0.18 + 0.03 * Math.sin(this.time * 8));
+        continue;
+      }
       if (z.kind === 'smoke') {
         const grow = Math.min(1, age / 0.5);
         v.root.scale.setScalar(Math.max(0.01, 1 - Math.pow(1 - grow, 3)));

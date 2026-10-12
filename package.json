@@ -1,7 +1,7 @@
 {
   "name": "poke-strike",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "A single-player, Valorant-style tactical shooter against bots that runs in the browser. Unofficial fan project.",
   "license": "MIT",
   "author": "Nahid Hasan (nahid619)",

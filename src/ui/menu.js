@@ -6,7 +6,8 @@
 //   title -> agent select -> test range  -> (pause)
 //   title -> trainer setup -> drill      -> (pause) -> results
 //   title or pause -> settings / controls -> back where you came from
-import { saveSettings, resetSettings, CROSSHAIR_COLORS, exportSettingsCode, importSettingsCode } from '../core/settings.js';
+import { saveSettings, resetSettings, CROSSHAIR_COLORS, CROSSHAIR_PRESETS, exportSettingsCode, importSettingsCode } from '../core/settings.js';
+import { WEAPONS } from '../data/weapons.js';
 import { load, save } from '../core/storage.js';
 import { AGENTS, agentById } from '../data/agents.js';
 import { DRILLS, bestScores, bestKey } from '../modes/aimtrainer.js';
@@ -82,7 +83,7 @@ export function createMenus(app) {
     const a = agentById(agentChoice);
     const ability = (key) => {
       const x = a.abilities[key];
-      return `<div class="ability" style="--agent:${a.color}"><b><kbd>${key.toUpperCase()}</kbd>${x.name}</b>${x.about}<span class="meta">Cooldown ${x.cooldown} s</span></div>`;
+      return `<div class="ability" style="--agent:${a.color}"><b><kbd>${key.toUpperCase()}</kbd>${x.name}</b>${x.about}<span class="meta">Cooldown ${x.cooldown} s${x.charges > 1 ? ` \u00b7 ${x.charges} charges` : ''}</span></div>`;
     };
     $('agent-detail').innerHTML = ability('q') + ability('e');
     $('btn-agent-play').textContent = agentTarget === 'match' ? `Play as ${a.name}` : `Go to the test range as ${a.name}`;
@@ -269,6 +270,9 @@ export function createMenus(app) {
 
   const formats = {
     sensitivity: (v) => v.toFixed(2),
+    scopedSensitivity: (v) => v.toFixed(2),
+    crosshairDotSize: (v) => `${v}px`,
+    crosshairOpacity: (v) => `${Math.round(v * 100)}%`,
     fov: (v) => `${v}\u00b0`,
     volume: (v) => `${Math.round(v * 100)}%`,
     crosshairLength: (v) => `${v}px`,
@@ -313,6 +317,13 @@ export function createMenus(app) {
       changed(key);
     });
   }
+  // Crosshair presets set several values at once.
+  for (const b of document.querySelectorAll('[data-preset]')) {
+    b.addEventListener('click', () => {
+      Object.assign(settings, CROSSHAIR_PRESETS[b.dataset.preset] ?? {});
+      changed('crosshairStyle');
+    });
+  }
   document.addEventListener('click', (e) => {
     const el = e.target.closest('[data-choice]');
     if (!el) return;
@@ -326,8 +337,10 @@ export function createMenus(app) {
       el.style.setProperty('--len', `${settings.crosshairLength}px`);
       el.style.setProperty('--thick', `${settings.crosshairThickness}px`);
       el.style.setProperty('--gap', `${settings.crosshairGap}px`);
+      el.style.setProperty('--dot', `${settings.crosshairDotSize}px`);
+      el.style.setProperty('--alpha', String(settings.crosshairOpacity));
       el.classList.toggle('no-outline', !settings.crosshairOutline);
-      el.classList.remove('style-cross', 'style-dot', 'style-both');
+      el.classList.remove('style-cross', 'style-dot', 'style-both', 'style-circle');
       el.classList.add(`style-${settings.crosshairStyle}`);
     }
   }
@@ -387,7 +400,7 @@ export function createMenus(app) {
     const r = app.getTrainer().result;
     const pct = (x) => `${Math.round(x * 100)}%`;
     $('r-title').textContent = `${r.drill.name} drill`;
-    $('r-weapon').textContent = r.weaponId === 'rifle' ? 'Rifle' : 'Pistol';
+    $('r-weapon').textContent = WEAPONS[r.weaponId]?.name ?? 'Rifle';
     $('r-score').textContent = r.score;
     const best = $('r-best');
     best.className = r.isBest ? 'new' : '';

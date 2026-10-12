@@ -52,15 +52,26 @@ Open http://localhost:5173 in Chrome, Edge, or Brave. Or just double-click
 
 | Agent | Role | Q | E |
 |---|---|---|---|
-| Pikachu | Duelist | Thunder Dash | Thunder Wave (stun) |
-| Charizard | Duelist | Flame Burst | Blaze Trail (dash with fire) |
-| Gengar | Controller | Dark Fog (smoke) | Shadow Mark (teleport back) |
-| Blastoise | Sentinel | Withdraw (shield) | Hydro Burst |
-| Alakazam | Initiator | Teleport | Psychic Sight (reveal) |
-| Jigglypuff | Support | Sing (sleep) | Rest (heal) |
+| Pikachu | Duelist | Thunder Dash | Flash Bolt (thrown flash, 2 charges) |
+| Charizard | Duelist | Ember (lobbed fire patch) | Blaze Trail (dash with fire) |
+| Gengar | Controller | Dark Fog (smoke at range, 2 charges) | Shadow Mark (teleport back) |
+| Blastoise | Sentinel | Bubble Trap (slows and reveals, 2 at once) | Protect (team shield) |
+| Alakazam | Initiator | Confusion (thrown stun) | Future Sight (recon eye) |
+| Jigglypuff | Support | Sing (thrown sleep) | Wish (team heal) |
 
-**Weapons:** a rifle (automatic, one-shot headshots) and a pistol (semi-automatic, one-shot
-headshots up close), with recoil patterns, movement inaccuracy, and counter-strafing.
+Thrown abilities fly where you aim and arc with gravity, so you can lob them over cover. Flashes
+only blind enemies who are looking at them; turn away to dodge one.
+
+**Weapons** (pick your primary with **B** in the buy phase):
+- **Rifle** (plays like the Vandal): automatic, one-shot headshots, no damage falloff.
+  Right click zooms 1.25x for a tighter first shot.
+- **Sniper** (plays like the Operator): bolt action, one-shot body shots. Right click scopes
+  2.5x; it is pin-point only when fully scoped and standing still, and slows you down.
+- **Pistol** (plays like the Sheriff): semi-automatic, one-shot headshots up close.
+
+Gunplay follows Valorant: the camera barely moves when you spray, so bullets climb above a
+crosshair that stays put and you pull down to control them. Running ruins accuracy;
+counter-strafe (tap the opposite key) to stop instantly. Crouching (C) steadies your spray.
 
 ## Controls
 
@@ -68,10 +79,13 @@ headshots up close), with recoil patterns, movement inaccuracy, and counter-stra
 |---|---|
 | W A S D | Move |
 | Space | Jump |
+| C (hold) | Crouch (not Ctrl: Ctrl + W closes the browser tab and can't be blocked) |
 | Shift (hold) | Walk quietly (bots can't hear you) |
 | Left click | Shoot |
+| Right click | Zoom (rifle) or scope (sniper); again to zoom out. Hold mode in Settings |
+| B | Buy menu: rifle or sniper (pre-round, or any time in the test range) |
 | R | Reload |
-| 1 / 2, mouse wheel | Rifle / pistol |
+| 1 / 2, mouse wheel | Primary / pistol |
 | Q / E | Agent abilities |
 | F (hold) | Plant or defuse the spike |
 | Tab (hold) | Scoreboard, in a match |
@@ -83,7 +97,8 @@ headshots up close), with recoil patterns, movement inaccuracy, and counter-stra
 
 Open **Settings** from the title screen or the pause menu: mouse sensitivity (same scale as
 Valorant) and raw input, field of view, graphics quality, volume, frame rate counter, a full
-crosshair editor with live preview, what happens when you die (take over a teammate, or
+crosshair editor with live preview and presets (the default is a still dot; movement and
+firing error are separate switches, both off), scoped sensitivity and toggle-or-hold zoom, what happens when you die (take over a teammate, or
 spectate), and testing options.
 
 Settings are saved in your browser (localStorage), so they stay on that browser and that web
@@ -150,7 +165,10 @@ tests/                rules tests and map checks
 |---|---|
 | Movement (speed, jump, friction) | `MOVE` in `src/game/character.js` |
 | Hitbox sizes, status effect rules | `HITBOX`, `STATUS` in `src/game/character.js` |
-| Weapons (damage, fire rate, spread, recoil) | `src/data/weapons.js` |
+| Weapons (damage, fire rate, spread, recoil, zoom) | `src/data/weapons.js` |
+| How much recoil moves the camera | `recoil.view` and `recoil.punch` in `src/data/weapons.js` |
+| Crouch height and speed | `CROUCH`, `MOVE.crouchSpeed` in `src/game/character.js` |
+| Thrown abilities, traps, recon | `src/game/zones.js` (flight), `PAYLOADS` in `src/game/abilities.js` |
 | Agents and abilities (cooldowns, damage, radius, duration) | `src/data/agents.js` |
 | Spike (plant, defuse, fuse, barrier) | `SPIKE` in `src/game/spike.js` |
 | Round and takeover timings | `MATCH_TIMES`, `TAKEOVER` in `src/modes/match.js` |

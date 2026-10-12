@@ -8,8 +8,15 @@ const DEG = Math.PI / 180;
 class Slot {
   constructor(def) {
     this.def = def;
-    this.cooldown = 0;
+    this.max = def.charges ?? 1;
+    this.charges = this.max;
+    this.cooldown = 0;  // time until the next charge comes back
     this.marker = null; // Shadow Mark: placed marker waiting for the teleport
+  }
+
+  /** Ready to use: at least one charge. */
+  get ready() {
+    return this.charges > 0;
   }
 }
 
@@ -21,8 +28,17 @@ export class AbilityKit {
   }
 
   reset() {
-    for (const s of Object.values(this.slots)) s.cooldown = 0;
+    for (const s of Object.values(this.slots)) {
+      s.cooldown = 0;
+      s.charges = s.max;
+    }
     this.clearMarkers();
+  }
+
+  /** Use up one charge and start recharging it. */
+  _spend(slot) {
+    slot.charges = Math.max(0, slot.charges - 1);
+    if (slot.cooldown <= 0) slot.cooldown = slot.def.cooldown * this.cooldownScale;
   }
 
   /** Remove any placed Shadow Mark. Its visual removes itself. */
@@ -35,12 +51,21 @@ export class AbilityKit {
 
   tick(dt, intent, owner, ctx) {
     for (const [key, s] of Object.entries(this.slots)) {
-      s.cooldown = Math.max(0, s.cooldown - dt);
+      // Charges come back one at a time.
+      if (s.charges < s.max) {
+        s.cooldown -= dt;
+        if (s.cooldown <= 0) {
+          s.charges++;
+          s.cooldown = s.charges < s.max ? s.def.cooldown * this.cooldownScale : 0;
+        }
+      } else {
+        s.cooldown = 0;
+      }
       // An unused marker expires and the cooldown starts.
       if (s.marker && ctx.time >= s.marker.until) {
         ctx.events.emit('markerEnd', { owner, marker: s.marker });
         s.marker = null;
-        s.cooldown = s.def.cooldown * this.cooldownScale;
+        this._spend(s);
       }
       const pressed = key === 'q' ? intent.abilityQ : intent.abilityE;
       if (pressed) this.use(key, owner, ctx);
@@ -54,7 +79,7 @@ export class AbilityKit {
       ctx.events.emit('abilityDenied', { owner, key, ability: def, reason: owner.asleep ? 'asleep' : 'stunned' });
       return false;
     }
-    if (slot.cooldown > 0) {
+    if (!slot.ready) {
       ctx.events.emit('abilityDenied', { owner, key, ability: def, reason: 'cooldown' });
       return false;
     }
@@ -64,7 +89,7 @@ export class AbilityKit {
       return false;
     }
     ctx.events.emit('abilityCast', { owner, key, ability: def, ...(result ?? {}) });
-    if (!result?.armed) slot.cooldown = def.cooldown * this.cooldownScale;
+    if (!result?.armed) this._spend(slot);
     return true;
   }
 }
@@ -92,6 +117,17 @@ export function dealDamage(attacker, victim, damage, abilityName, ctx) {
   ctx.events.emit('hit', info);
   if (result.killed) ctx.events.emit('kill', info);
   return result;
+}
+
+/** Living teammates (including yourself) that abilities can help. */
+function alliesOf(owner, ctx) {
+  return ctx.characters.filter((c) => c.alive && c.team === owner.team && c.applyStatus);
+}
+
+/** Floor height under a point (or null if there is none within `depth`). */
+function floorBelow(world, p, depth = 8) {
+  const hit = world.raycast({ x: p.x, y: p.y + 0.05, z: p.z }, { x: 0, y: -1, z: 0 }, depth);
+  return hit ? p.y + 0.05 - hit.t : null;
 }
 
 function forwardFlat(owner) {
@@ -226,4 +262,132 @@ export const EFFECTS = {
     const zone = ctx.zones.addSmoke({ ...center, radius: a.radius, duration: a.duration, team: owner.team }, ctx.time);
     return { zone };
   },
+
+  /** Throw something where you aim. It sets off its payload on impact or when the fuse ends. */
+  throw(owner, a, ctx) {
+    const o = eye(owner);
+    const dir = directionFromAngles(owner.viewYaw, owner.viewPitch);
+    // Start a little in front of the face, but never inside a wall.
+    const wall = ctx.world.raycast(o, dir, 0.6);
+    const lead = wall ? Math.max(0, wall.t - 0.15) : 0.5;
+    const projectile = ctx.zones.addProjectile({
+      owner, team: owner.team, name: a.name, color: a.color,
+      x: o.x + dir.x * lead, y: o.y - 0.1 + dir.y * lead, z: o.z + dir.z * lead,
+      vx: dir.x * a.speed, vy: dir.y * a.speed, vz: dir.z * a.speed,
+      gravity: a.gravity ?? 0, fuse: a.fuse ?? 2, bounce: !!a.bounce, stick: !!a.stick,
+      payload: a.payload,
+    }, ctx.time);
+    return { projectile, dir };
+  },
+
+  /** Place a trap on the floor where you aim. */
+  trap(owner, a, ctx) {
+    const world = ctx.world;
+    const o = eye(owner);
+    const dir = directionFromAngles(owner.viewYaw, owner.viewPitch);
+    const hit = world.raycast(o, dir, a.range);
+    let p;
+    if (hit && hit.ny > 0.6) {
+      p = { x: o.x + dir.x * hit.t, y: o.y + dir.y * hit.t, z: o.z + dir.z * hit.t };
+    } else {
+      // Aimed at a wall or into the air: drop it to the floor just before that point.
+      const t = hit ? Math.max(0, hit.t - 0.4) : a.range;
+      const q = { x: o.x + dir.x * t, y: o.y + dir.y * t, z: o.z + dir.z * t };
+      const y = floorBelow(world, q, 10);
+      if (y === null) return DENIED;
+      p = { x: q.x, y, z: q.z };
+    }
+    const mine = ctx.zones.traps.filter((t) => t.owner === owner);
+    if (mine.length >= (a.maxActive ?? 2)) ctx.zones.remove(mine[0]); // the oldest one goes
+    const zone = ctx.zones.addTrap({
+      ...p, owner, team: owner.team, name: a.name, radius: a.radius, armAt: ctx.time + (a.armTime ?? 1),
+      slow: a.slow, slowDuration: a.slowDuration, revealDuration: a.revealDuration, color: a.color,
+    }, ctx.time);
+    return { zone, point: p };
+  },
+
+  /** Help yourself and nearby teammates you can see: shield and/or healing. */
+  aura(owner, a, ctx) {
+    const center = chest(owner);
+    const helped = [];
+    for (const c of alliesOf(owner, ctx)) {
+      const p = chest(c);
+      if (c !== owner && (dist(center, p) > a.radius || !ctx.world.lineOfSight(center, p, false))) continue;
+      helped.push(c);
+    }
+    if (a.heal && !a.shield && !helped.some((c) => c.health < c.maxHealth)) return DENIED; // nobody hurt
+    for (const c of helped) {
+      if (a.shield) c.addOvershield(a.shield, a.shieldDuration);
+      if (a.heal && c.health < c.maxHealth) c.startHeal(a.heal, a.healDuration);
+    }
+    return { center, helped };
+  },
 };
+
+// ---------------------------------------------------------------------------
+// Payloads: what a thrown ability does when it goes off at `point`.
+// Each returns the characters it affected.
+// ---------------------------------------------------------------------------
+
+const FLASH_FULL = Math.cos(55 * DEG);  // looking within 55 degrees: full blind
+const FLASH_HALF = Math.cos(100 * DEG); // within 100 degrees: a short blind
+
+export const PAYLOADS = {
+  flash(p, point, ctx) {
+    const a = p.payload;
+    const hits = [];
+    for (const c of enemiesOf(p.owner, ctx)) {
+      const e = eye(c);
+      const d = dist(e, point);
+      if (d > (a.range ?? 40) || d < 1e-3) continue;
+      if (!ctx.world.lineOfSight(e, point, true)) continue; // walls and smoke shield you
+      const look = directionFromAngles(c.viewYaw ?? c.yaw, c.viewPitch ?? c.pitch);
+      const cos = ((point.x - e.x) * look.x + (point.y - e.y) * look.y + (point.z - e.z) * look.z) / d;
+      const k = cos >= FLASH_FULL ? 1 : cos >= FLASH_HALF ? 0.35 : 0;
+      if (k <= 0) continue;
+      c.applyStatus('blind', a.duration * k);
+      hits.push(c);
+    }
+    return hits;
+  },
+
+  fire(p, point, ctx) {
+    const a = p.payload;
+    const y = floorBelow(ctx.world, point, 6) ?? point.y;
+    ctx.zones.addFire({
+      x: point.x, y, z: point.z, radius: a.radius, dps: a.dps, duration: a.duration,
+      team: p.team, owner: p.owner, name: p.name,
+    }, ctx.time);
+    return [];
+  },
+
+  concuss(p, point, ctx) {
+    return statusBurst(p, point, ctx, 'stun');
+  },
+
+  sleep(p, point, ctx) {
+    return statusBurst(p, point, ctx, 'sleep');
+  },
+
+  recon(p, point, ctx) {
+    const a = p.payload;
+    ctx.zones.addRecon({
+      ...point, owner: p.owner, team: p.team, name: p.name, radius: a.radius,
+      pulses: a.pulses ?? 2, interval: a.interval ?? 1.4, reveal: a.reveal ?? 3,
+    }, ctx.time);
+    return [];
+  },
+};
+
+function statusBurst(p, point, ctx, status) {
+  const a = p.payload;
+  const hits = [];
+  for (const c of enemiesOf(p.owner, ctx)) {
+    const q = chest(c);
+    if (dist(point, q) > a.radius) continue;
+    if (!ctx.world.lineOfSight(point, q, false)) continue;
+    c.applyStatus(status, a.duration);
+    hits.push(c);
+  }
+  return hits;
+}

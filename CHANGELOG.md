@@ -1,5 +1,44 @@
 # Changelog
 
+## 1.1.0
+
+Gunplay rebuilt to feel like Valorant, a new sniper, and new agent utility.
+
+**Gunplay**
+- **Recoil no longer throws your view around.** Bullets follow the spray pattern, but the
+  camera follows only a small part of it plus a short kick that springs back, smoothed every
+  frame. Your crosshair stays put and you pull down to control the spray, like Valorant.
+- **Right click to zoom.** The rifle zooms 1.25x (tighter first shot, a little slower fire and
+  movement). Toggle by default (click again to zoom out), or Hold in Settings. Zoomed mouse
+  movement is scaled so the crosshair moves the same distance on screen; fine-tune it with the
+  new scoped sensitivity multiplier.
+- **New Sniper.** Bolt action, one-shot body shots, 2.5x scope with a full scope overlay.
+  Pin-point when fully scoped and still; a gamble from the hip. Reloading leaves the scope.
+- **Buy menu (B).** Pick rifle or sniper during the pre-round countdown (now 7 s), or any time
+  in the test range. Your pick is remembered. Bot teams sometimes give an anchor the sniper.
+- **Crouch (C).** Lowers your hitboxes, steadies your spray, and is silent.
+- **Snappier movement.** Faster acceleration and stopping; counter-strafing is a quick tap.
+- **Smoother gun animation.** Spring-based recoil, aim-down-sights glide, magazine drop on
+  reload, sniper bolt cycling, landing dip, and a lighter, quicker sway (less input-lag feel).
+
+**Crosshair**
+- The default is now a still green dot. Movement error and firing error are separate switches,
+  both off. Old saved settings with the moving crosshair are switched over automatically.
+- Presets (Dot, Small dot, Classic, Classic + dot, Circle dot), a circle style, dot size, and
+  opacity. The crosshair hides while fully scoped.
+
+**Agents**
+- Every agent now has ranged, Valorant-style utility: Flash Bolt (Pikachu), Ember (Charizard),
+  Bubble Trap and Protect (Blastoise), Confusion and Future Sight (Alakazam), a thrown Sing and
+  Wish (Jigglypuff). Dark Fog reaches 40 m. Some abilities have 2 charges.
+- New flash (blind) status with a full-screen whiteout. Flashed bots can't see.
+- Bots use all of it: they flash enemies who are facing them, lob fire onto a defuse, stun or
+  sleep before pushing, throw recon ahead, trap the angles they hold, and shield or heal the team.
+
+**Fixes**
+- The weapon list now updates after buying a different primary.
+- The round timer no longer shows in the test range.
+
 ## 1.0.1
 
 Fixes to shooting feel and a few bugs. No balance changes.

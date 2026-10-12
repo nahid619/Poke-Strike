@@ -55,7 +55,8 @@ const dist2d = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const blankIntent = () => ({
   forward: 0, right: 0, walk: false, jump: false,
   fireHeld: false, firePressed: false, reload: false, switchTo: null, switchDelta: 0,
-  abilityQ: false, abilityE: false, interact: false,
+  abilityQ: false, abilityE: false, interact: false, crouch: false,
+  adsPressed: false, adsHeld: false, adsHold: true,
 });
 
 export class BotController {
@@ -189,6 +190,9 @@ export class BotController {
     const pick = chooseWeapon(c.loadout, !!this.target);
     if (pick !== null) intent.switchTo = pick;
 
+    // Snipers scope in as soon as they have someone to shoot at.
+    intent.adsHeld = !!this.target && this.state === STATE.FIGHT && c.loadout?.current.def.ads?.scope === 'sniper';
+
     // Top up the magazine whenever not shooting at someone.
     const w = c.loadout?.current;
     if (!this.target && w && w.ammo < w.def.magSize * 0.4 && w.reserve > 0) intent.reload = true;
@@ -207,14 +211,16 @@ export class BotController {
     let bestD = Infinity;
     for (const e of this.ctx.characters) {
       if (!e.isCharacter || !e.alive || e.team === c.team) continue;
-      // Revealed enemies (Psychic Sight) are known to the whole team, even through walls.
+      // Revealed enemies (recon, traps) are known to the whole team, even through walls.
       if (e.revealed && intel) intel.spotted(e, this.time, this.nav.nearest(e.pos.x, e.pos.z)?.lane);
+      if (c.blinded) continue; // flashed: can't see anyone
       const d = dist2d(e.pos, eye);
       if (d > s.viewDistance || d >= bestD) continue;
       const off = Math.abs(wrap(yawTo(eye, e.pos) - c.yaw));
       if (off > (s.fov * DEG) / 2 && d > s.nearSense) continue;
-      const head = { x: e.pos.x, y: e.pos.y + 1.58, z: e.pos.z };
-      const chest = { x: e.pos.x, y: e.pos.y + 1.1, z: e.pos.z };
+      const k = e.bodyScale ?? 1; // crouching behind cover hides you better
+      const head = { x: e.pos.x, y: e.pos.y + 1.58 * k, z: e.pos.z };
+      const chest = { x: e.pos.x, y: e.pos.y + 1.1 * k, z: e.pos.z };
       if (!world.lineOfSight(eye, head) && !world.lineOfSight(eye, chest)) continue;
       best = e;
       bestD = d;
@@ -321,7 +327,7 @@ export class BotController {
     }
 
     const ey = c.pos.y + c.eyeHeight;
-    const aimY = t.pos.y + (this.aimHead ? 1.58 : 1.15);
+    const aimY = t.pos.y + (this.aimHead ? 1.58 : 1.15) * (t.bodyScale ?? 1); // lower if they crouch
     const flat = dist2d(t.pos, c.pos);
     const trueYaw = yawTo(c.pos, t.pos);
     const truePitch = Math.atan2(aimY - ey, flat);
@@ -348,6 +354,17 @@ export class BotController {
     }
     if (!onTarget) return;
     if (Math.hypot(c.vel.x, c.vel.z) > 1.5) return; // let friction stop us (counter-strafe)
+
+    // A sniper only fires fully scoped, standing still, with the shot lined up on the body.
+    const def = c.loadout?.current.def;
+    if (def?.ads?.scope === 'sniper') {
+      if (!c.loadout.scoped || Math.hypot(c.vel.x, c.vel.z) > 0.8) return;
+      const tight = Math.atan2(0.22, Math.max(1, flat));
+      if (Math.abs(wrap(c.aimYaw - trueYaw)) > tight || Math.abs(c.aimPitch - truePitch) > tight) return;
+      intent.fireHeld = true;
+      intent.firePressed = true;
+      return;
+    }
 
     if (this.burstTimer <= 0) {
       const interval = c.loadout ? c.loadout.current.interval : 0.1;
@@ -386,6 +403,8 @@ export class BotController {
     // Site defenders take their own lane to their spot instead of all crossing mid.
     const avoidLane = this.orders?.kind === 'defend' && this.orders.site !== 'M' && !this.holdSpot ? 'M' : null;
     const arrived = this._goTo(c, dt, intent, spot.node, { walk: this._shouldWalk(), avoidLane });
+    this.holdArrived = arrived ? this.time : null; // when it got to the spot (traps go down then)
+    this.holdLook = spot.look ?? null;
     if (arrived) {
       // Watch the angle, with a slow sweep; turn toward noises.
       const look = spot.look ?? { x: c.pos.x, z: c.pos.z - 10 };

@@ -1,7 +1,7 @@
 // 5v5 match against bots: you and four bot teammates against five bots.
 // Rounds are won by eliminating the other team (or by having more players
 // alive when the timer runs out). First team to `roundsToWin` takes the match.
-import { Session } from '../game/session.js';
+import { Session, savedPrimary } from '../game/session.js';
 import { Character } from '../game/character.js';
 import { Loadout } from '../game/weapons.js';
 import { AbilityKit } from '../game/abilities.js';
@@ -17,10 +17,11 @@ import { DEFAULT_LOADOUT } from '../data/weapons.js';
 import map1 from '../data/maps/map1.js';
 
 export const MATCH_TIMES = {
-  buy: 5,      // pre-round countdown (frozen in spawn)
+  buy: 7,      // pre-round countdown (frozen in spawn; press B to pick a gun)
   round: 100,  // round length
   end: 4,      // pause after a round is decided
 };
+const BOT_SNIPER_CHANCE = 0.35; // chance per team per round that one bot takes the sniper
 const ASSIST_WINDOW = 10; // damage within this many seconds before a kill counts as an assist
 const SPECTATE_DELAY = 2; // seconds of death cam before spectating a teammate
 export const TAKEOVER = {
@@ -162,6 +163,7 @@ export class MatchMode extends Session {
 
     this.setAgent(agent);
     this.player.name = 'You';
+    this.player.loadout.setPrimary(savedPrimary());
 
     for (const [team, picks] of [['ally', allies], ['enemy', enemies]]) {
       for (const a of picks) {
@@ -289,12 +291,33 @@ export class MatchMode extends Session {
       this.spike.reset(null, null);
       this.ctx.objective = null;
     }
+    this._botBuys();
     this.liveTime = 0;
     for (const team of ['ally', 'enemy']) {
       if (this.spikeMode) this._issueSpikeOrders(team);
       else this._issueOrders(team);
     }
     this.events.emit('roundStart', { round: this.round });
+  }
+
+  /** You can change guns during the pre-round countdown. */
+  canBuy() {
+    return this.phase === 'buy' && super.canBuy();
+  }
+
+  /**
+   * Each round a team may give one bot the sniper: usually an anchor (they
+   * hold long angles), otherwise a support. Everyone else takes the rifle.
+   */
+  _botBuys() {
+    for (const team of ['ally', 'enemy']) {
+      const bots = this.bots.filter((b) => b.team === team);
+      for (const b of bots) b.loadout.setPrimary('rifle');
+      if (Math.random() > BOT_SNIPER_CHANCE) continue;
+      const pool = bots.filter((b) => b.brain?.role === 'anchor');
+      const pick = (pool.length ? pool : bots.filter((b) => b.brain?.role === 'support'))[0];
+      if (pick) pick.loadout.setPrimary('sniper');
+    }
   }
 
   // ---- round flow ----
