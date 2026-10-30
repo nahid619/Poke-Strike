@@ -3,6 +3,7 @@
 // (human or bot) only supplies an "intent" each tick: which way to move, jump,
 // shoot, or use an ability.
 import * as THREE from 'three';
+import { buildRig, animateRig, rigHit, rigFire } from './rig.js';
 import { raySphere, rayCylinder } from '../core/physics.js';
 
 export const TEAM_COLORS = {
@@ -431,36 +432,30 @@ export class Character {
    * `holdSeen` keeps the previous `seenPos`: while a click waits for the next
    * tick, the shot must use the frame you clicked on, not a newer one.
    */
-  syncMesh(alpha, holdSeen = false) {
+  syncMesh(alpha, holdSeen = false, dt = 0) {
     this.renderPosition(alpha, this.mesh.position);
     this.mesh.position.y += this.stepOffset;
     if (!holdSeen || !this.seenPos) (this.seenPos ??= new THREE.Vector3()).copy(this.mesh.position);
     this.mesh.rotation.y = this.yaw;
-    // Death: tip over backwards.
-    const fall = this.alive ? 0 : Math.min(this.deathTime / 0.3, 1);
-    this.mesh.rotation.x = fall * fall * (Math.PI / 2) * 0.95;
-
     const parts = this.mesh.userData;
-    const k = this.bodyScale;
-    if (parts.body && parts.lastScale !== k) {
-      parts.lastScale = k;
-      for (const m of [parts.body, parts.rb]) {
-        m.scale.y = k;
-        m.position.y = TORSO_Y * k;
-      }
-      for (const m of parts.legs) {
-        m.scale.y = k;
-        m.position.y = (HITBOX.legsTop / 2) * k;
-      }
-      parts.head.position.y = HITBOX.headY * k;
-      parts.visor.position.y = (HITBOX.headY + 0.02) * k;
-      parts.rh.position.y = parts.head.position.y;
-    }
-    parts.reveal.visible = this.alive && this.revealed;
+    animateRig(parts, this, dt, HITBOX); // walking, crouching, aiming, flinching, dying (see rig.js)
     parts.stunRing.visible = this.alive && this.stunned;
-    if (parts.stunRing.visible) parts.stunRing.rotation.z += 0.15;
+    if (parts.stunRing.visible) {
+      parts.stunRing.rotation.z += 0.15;
+      parts.stunRing.position.y = HITBOX.headY * this.bodyScale + 0.32;
+    }
     parts.sleepIcon.visible = this.alive && this.asleep;
     if (parts.nameTag) parts.nameTag.visible = this.alive;
+  }
+
+  /** A shot from `from` hit this character (for the flinch and which way it falls). */
+  visualHit(from, part) {
+    rigHit(this.mesh.userData, this, from, part);
+  }
+
+  /** This character fired (the gun kicks). */
+  visualFire() {
+    rigFire(this.mesh.userData);
   }
 }
 
@@ -488,26 +483,15 @@ function accelerate(vel, wx, wz, wishSpeed, accel, dt, cap = Infinity) {
 }
 
 // ---------------------------------------------------------------------------
-// Body: a team-colored torso capsule, a head sphere, and a dark visor showing
-// which way the character faces. Plus status indicators: a see-through-walls
-// outline (revealed), a spinning ring (stunned), and a "Zz" (asleep).
+// Body: an animated figure in team colors with agent-colored accents (see
+// rig.js), plus status indicators: a see-through-walls outline (revealed), a
+// spinning ring (stunned), and a "Zz" (asleep).
 // ---------------------------------------------------------------------------
-// The torso covers exactly the body hitbox (hips to shoulders) and two legs
-// cover the leg hitbox below it, so what looks like a body shot is one.
-const TORSO_Y = (HITBOX.legsTop + HITBOX.bodyTop) / 2 + 0.02;
-const bodyGeometry = new THREE.CapsuleGeometry(0.27, 0.12, 4, 12);
-const legGeometry = new THREE.CylinderGeometry(0.11, 0.09, HITBOX.legsTop, 10);
-const LEG_X = 0.13;
-const legMaterials = {};
-const headGeometry = new THREE.SphereGeometry(HITBOX.headR, 16, 12);
-const visorGeometry = new THREE.BoxGeometry(0.26, 0.08, 0.1);
-const visorMaterial = new THREE.MeshStandardMaterial({ color: 0x1b1f2a, roughness: 0.3 });
 const revealMaterial = new THREE.MeshBasicMaterial({
   color: 0xff5ad8, transparent: true, opacity: 0.55, depthTest: false, depthWrite: false,
 });
 const stunGeometry = new THREE.TorusGeometry(0.28, 0.035, 6, 24);
 const stunMaterial = new THREE.MeshBasicMaterial({ color: 0xffe14a });
-const teamMaterials = {};
 let sleepTexture = null;
 
 function makeSleepTexture() {
@@ -525,61 +509,13 @@ function makeSleepTexture() {
 }
 
 function buildBody(c) {
-  const group = new THREE.Group();
-  group.rotation.order = 'YXZ'; // yaw first, so the death tilt is in the body's own frame
-  const material = (teamMaterials[c.team] ??= new THREE.MeshStandardMaterial({
-    color: TEAM_COLORS[c.team] ?? 0xaaaaaa,
-    roughness: 0.6,
-  }));
-
-  const body = new THREE.Mesh(bodyGeometry, material);
-  body.position.y = TORSO_Y;
-  body.castShadow = true;
-  group.add(body);
-
-  // Legs: a darker shade of the team color.
-  const legMaterial = (legMaterials[c.team] ??= new THREE.MeshStandardMaterial({
-    color: new THREE.Color(TEAM_COLORS[c.team] ?? 0xaaaaaa).multiplyScalar(0.55),
-    roughness: 0.7,
-  }));
-  const legs = [-LEG_X, LEG_X].map((x) => {
-    const leg = new THREE.Mesh(legGeometry, legMaterial);
-    leg.position.set(x, HITBOX.legsTop / 2, 0);
-    leg.castShadow = true;
-    group.add(leg);
-    return leg;
-  });
-
-  const head = new THREE.Mesh(headGeometry, material);
-  head.position.y = HITBOX.headY;
-  head.castShadow = true;
-  group.add(head);
-
-  const visor = new THREE.Mesh(visorGeometry, visorMaterial);
-  visor.position.set(0, HITBOX.headY + 0.02, -HITBOX.headR + 0.03);
-  group.add(visor);
-
-  // Revealed outline, drawn on top of walls.
-  const reveal = new THREE.Group();
-  const rb = new THREE.Mesh(bodyGeometry, revealMaterial);
-  rb.position.y = body.position.y;
-  const rh = new THREE.Mesh(headGeometry, revealMaterial);
-  rh.position.y = head.position.y;
-  const rl = legs.map((leg) => {
-    const m = new THREE.Mesh(legGeometry, revealMaterial);
-    m.position.copy(leg.position);
-    return m;
-  });
-  for (const m of [rb, rh, ...rl]) m.renderOrder = 999;
-  reveal.add(rb, rh, ...rl);
-  reveal.visible = false;
-  group.add(reveal);
+  const { root, parts } = buildRig({ color: TEAM_COLORS[c.team] ?? 0xaaaaaa, revealMaterial });
 
   const stunRing = new THREE.Mesh(stunGeometry, stunMaterial);
   stunRing.rotation.x = Math.PI / 2;
   stunRing.position.y = HITBOX.headY + 0.32;
   stunRing.visible = false;
-  group.add(stunRing);
+  root.add(stunRing);
 
   let sleepIcon;
   if (typeof document !== 'undefined') {
@@ -591,8 +527,8 @@ function buildBody(c) {
     sleepIcon = new THREE.Object3D(); // headless tests
   }
   sleepIcon.visible = false;
-  group.add(sleepIcon);
+  root.add(sleepIcon);
 
-  group.userData = { reveal, stunRing, sleepIcon, body, head, visor, rb, rh, legs: [...legs, ...rl], lastScale: 1 };
-  return group;
+  root.userData = { ...parts, stunRing, sleepIcon };
+  return root;
 }

@@ -52,6 +52,7 @@ export class HumanController {
       switchDelta: Math.sign(i.consumeWheel()),
       abilityQ: i.consumePressed('KeyQ'),
       abilityE: i.consumePressed('KeyE'),
+      abilityX: i.consumePressed('KeyX'),
       interact: i.isDown('KeyF'), // hold to plant or defuse the spike
       // Crouch is on C: in a browser, Ctrl + W closes the tab and can't be blocked.
       crouch: i.isDown('KeyC'),

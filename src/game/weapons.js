@@ -28,9 +28,10 @@ class Weapon {
 const lerp = (a, b, k) => a + (b - a) * k;
 
 export class Loadout {
+  /** `ids`: [primary, sidearm]; the primary can be null (nothing bought). */
   constructor(ids) {
-    this.weapons = ids.map((id) => new Weapon(WEAPONS[id]));
-    this.index = 0;
+    this.weapons = ids.map((id) => (id ? new Weapon(WEAPONS[id]) : null));
+    this.index = Math.max(0, this.weapons.findIndex((w) => w));
     this.equipTimer = 0;
     this.reloadTimer = 0;
     this.nextFire = 0;
@@ -126,8 +127,23 @@ export class Loadout {
   /** Swap the primary weapon (slot 1), e.g. from the buy menu. */
   setPrimary(id, owner = null, ctx = null) {
     if (!WEAPONS[id] || this.weapons[0]?.def.id === id) return false;
-    this.weapons[0] = new Weapon(WEAPONS[id]);
-    if (this.index === 0) {
+    return this.setSlot(0, id, owner, ctx);
+  }
+
+  /**
+   * Put a weapon in a slot (0 = primary, 1 = sidearm), or empty the primary
+   * slot with null. Buying a gun takes it out right away, like Valorant.
+   */
+  setSlot(slot, id, owner = null, ctx = null) {
+    if (id && !WEAPONS[id]) return false;
+    this.weapons[slot] = id ? new Weapon(WEAPONS[id]) : null;
+    if (!id) {
+      if (this.index === slot) this.index = this.weapons.findIndex((w) => w);
+      this.equipTimer = this.current?.def.equipTime ?? 0;
+      return true;
+    }
+    this.index = slot;
+    {
       this.reloadTimer = 0;
       this.equipTimer = this.current.def.equipTime;
       this.spray = 0;
@@ -139,6 +155,16 @@ export class Loadout {
       if (ctx) ctx.events.emit('equip', { owner, weapon: this.current.def });
     }
     return true;
+  }
+
+  /** Full magazines and reserves (a new round). */
+  refill() {
+    for (const w of this.weapons) {
+      if (!w) continue;
+      w.ammo = w.def.magSize;
+      w.reserve = w.def.reserve;
+    }
+    this.reloadTimer = 0;
   }
 
   switchTo(index, owner, ctx) {
@@ -297,27 +323,45 @@ export class Loadout {
     // Aim direction = where you aim plus the spray pattern (the camera only
     // follows part of it), plus random spread.
     const spread = this.spreadFor(owner) * DEG;
-    const dir = directionFromAngles(owner.aimYaw, owner.aimPitch);
-    applySpread(dir, spread);
     // Fire from the eye, where the camera is. The drawn position already
     // includes the smoothing after stepping up a ledge (stepOffset).
     const at = shotPosition(owner, owner);
     const lift = at === owner.pos ? owner.stepOffset : 0;
     const origin = { x: at.x, y: at.y + owner.eyeHeight + lift, z: at.z };
 
-    const hit = traceShot(origin, dir, owner, ctx);
-    const shot = { owner, weapon: def, origin, dir, hit, scoped: k > 0.5 };
-
-    if (hit.character) {
-      const base = def.damage[hit.part];
-      const damage = Math.round(base * falloffMultiplier(def, hit.t) * (owner.damageScale ?? 1));
-      const result = hit.character.applyDamage(damage);
-      const info = {
-        attacker: owner, victim: hit.character, part: hit.part, damage, dealt: result.dealt, weapon: def, point: hit.point,
-      };
+    // One ray per bullet; a shotgun fires several pellets in a cone, and
+    // their damage adds up on each target (the best body part counts).
+    const pellets = def.pellets ?? 1;
+    const rank = { legs: 0, body: 1, head: 2 };
+    const hits = [];
+    const totals = new Map();
+    for (let p = 0; p < pellets; p++) {
+      const dir = directionFromAngles(owner.aimYaw, owner.aimPitch);
+      applySpread(dir, spread);
+      if (def.pelletSpread) applySpread(dir, def.pelletSpread * DEG);
+      const hit = traceShot(origin, dir, owner, ctx);
+      hits.push({ dir, hit });
+      if (!hit.character) continue;
+      const damage = def.damage[hit.part] * falloffMultiplier(def, hit.t) * (owner.damageScale ?? 1);
+      const t = totals.get(hit.character) ?? { damage: 0, part: hit.part, point: hit.point };
+      t.damage += damage;
+      if (rank[hit.part] > rank[t.part]) {
+        t.part = hit.part;
+        t.point = hit.point;
+      }
+      totals.set(hit.character, t);
+    }
+    for (const [victim, t] of totals) {
+      const damage = Math.round(t.damage);
+      const result = victim.applyDamage(damage);
+      const info = { attacker: owner, victim, part: t.part, damage, dealt: result.dealt, weapon: def, point: t.point, pellets: pellets > 1 };
       ctx.events.emit('hit', info);
       if (result.killed) ctx.events.emit('kill', info);
     }
+    const shot = {
+      owner, weapon: def, origin, dir: hits[0].dir, hit: hits[0].hit, scoped: k > 0.5,
+      pellets: hits.slice(1).map((h) => h.hit), // the other pellets, for tracers and impacts
+    };
     ctx.events.emit('shot', shot);
 
     this._kick(owner, def, lerp(1, def.ads?.recoilMult ?? 1, k));

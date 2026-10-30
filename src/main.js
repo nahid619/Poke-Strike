@@ -18,7 +18,7 @@ import { RangeMode } from './modes/range.js';
 import { AimTrainer } from './modes/aimtrainer.js';
 import { MatchMode } from './modes/match.js';
 import { AGENTS, agentById } from './data/agents.js';
-import { PRIMARIES } from './data/weapons.js';
+import { BUY_ORDER } from './game/economy.js';
 import { mapById } from './data/maps/index.js';
 
 const TICK_RATE = 60;
@@ -121,17 +121,24 @@ function getMatch(mapId = null) {
       hud.callout(from.name, `Enemy ${where}`);
     });
     m.events.on('roundLive', () => sound.roundLive());
+    // Your team's plan for the round, like a teammate calling it.
+    m.events.on('teamPlan', ({ team, text }) => { if (team === m.controlled.team) hud.callout('Plan', text); });
+    const BUY_CALL = { pistol: 'Pistol round', full: 'Full buy', force: 'Force buy: spend it all', bonus: 'Bonus round: keep your guns', eco: 'Eco round: save your credits' };
+    m.events.on('teamBuy', ({ team, tier }) => { if (team === m.player.team) hud.callout('Buy', BUY_CALL[tier]); });
+    m.events.on('ultReady', ({ who }) => {
+      if (who === m.controlled) { hud.callout('Ultimate', `${who.abilities.slots.x.def.name} is ready: press X`); sound.ability('ping'); }
+    });
+    m.events.on('orbTaken', ({ who }) => { if (who === m.controlled) hud.callout('Orb', '+1 ultimate point'); });
     // Plant and defuse
-    const near = (pos) => {
-      const d = Math.hypot(pos.x - m.listener.x, pos.z - m.listener.z);
-      const angle = Math.atan2(-(pos.x - m.listener.x), -(pos.z - m.listener.z)) - m.listener.yaw;
-      return [Math.min(1, 1 / (1 + d / 10)), -Math.sin(angle) * Math.min(1, d / 3)];
-    };
     const sideClass = () => (m.controlled.team === m.attackers ? 'attack' : 'defend');
-    m.events.on('spikeBeep', ({ pos }) => sound.spikeBeep(...near(pos)));
+    m.events.on('spikeBeep', ({ pos }) => sound.spikeBeep(m.placeSound(pos, 10, { lift: 0.3 })));
     m.events.on('spikePlanted', ({ site }) => { sound.spikePlanted(); hud.announce(`Spike planted on site ${site}`, sideClass()); });
     m.events.on('spikeDefused', () => { sound.spikeDefused(); hud.announce('Spike defused', sideClass()); });
-    m.events.on('spikeDetonated', ({ pos }) => sound.spikeDetonated(near(pos)[0] * 0.7 + 0.3));
+    m.events.on('spikeDetonated', ({ pos }) => {
+      // Heard everywhere on the map, never muffled.
+      const where = m.placeSound(pos, 10);
+      sound.spikeDetonated({ ...where, volume: where.volume * 0.7 + 0.3, occluded: false });
+    });
     m.events.on('spikeDropped', () => { if (m.controlled.team === m.attackers) hud.announce('Spike dropped', 'attack'); });
     m.events.on('spikePickup', ({ who }) => { if (who.team === m.controlled.team) hud.announce(who === m.controlled ? 'You picked up the spike' : `${who.name} has the spike`, sideClass()); });
     m.events.on('barrierDown', () => { if (m.controlled.team === m.attackers) hud.announce('Barrier down. Go plant.', 'attack'); });
@@ -152,6 +159,7 @@ function getMatch(mapId = null) {
 function useSession(next) {
   if (session === next) return;
   session = next;
+  sound.setRoom(next.map.acoustics); // each map has its own echo
   applyQuality(); // newly built scenes pick up the current quality
   session.resetInterpolation();
   debug.attach(session.scene, session.world, session.nav ?? null);
@@ -275,23 +283,33 @@ const scopeEl = document.getElementById('scope');
 const zoomLabel = scopeEl?.querySelector('.zl');
 const blindEl = document.getElementById('fx-blind');
 
-/** The buy menu: press B (pre-round in a match, any time in the test range). */
+/**
+ * The buy menu: press B (pre-round in a match, any time in the test range),
+ * then 1-9 or 0 to buy (see game/economy.js). Press a key again to sell back.
+ */
 function updateBuy() {
   const pressedB = input.consumePressed('KeyB');
   const canBuy = state === 'playing' && !!session.canBuy?.();
   if (!canBuy) buyOpen = false;
   else if (pressedB) buyOpen = !buyOpen;
   if (buyOpen) {
-    PRIMARIES.forEach((id, i) => {
-      if (input.consumePressed('Digit' + (i + 1))) {
-        session.buyPrimary(id);
-        buyOpen = false;
+    BUY_ORDER.forEach((id, i) => {
+      if (input.consumePressed('Digit' + ((i + 1) % 10))) {
+        const result = session.buy(id);
+        if (result?.ok) sound.equip();
+        else if (result) sound.dryFire();
       }
     });
   }
   human.buyOpen = buyOpen;
-  const primary = session.player.loadout?.weapons[0]?.def.id;
-  hud.buyMenu({ open: buyOpen, canBuy, primary, hint: canBuy && session.isMatch });
+  const p = session.player;
+  const owned = (p.loadout?.weapons ?? []).filter(Boolean).map((w) => w.def.id);
+  hud.buyMenu({
+    open: buyOpen, canBuy, hint: canBuy && session.isMatch && !session.deathmatch,
+    credits: session.isMatch && !session.deathmatch ? p.credits ?? 0 : null, // deathmatch: guns are free
+    owned, bought: [...(p.bought?.keys() ?? [])].filter((k) => !k.startsWith('before:')),
+    shield: p.shield ?? 0, income: p.lastIncome ?? 0, tier: session.buyTier?.[p.team] ?? null,
+  });
 }
 
 function frame(now) {
@@ -321,7 +339,7 @@ function frame(now) {
   const alpha = running ? accumulator / TICK : 1;
   // A click that hasn't reached a tick yet keeps the frame it was made on, so
   // the shot is checked against what you actually clicked at.
-  session.syncMeshes(alpha, input.hasPendingPress('Mouse0'));
+  session.syncMeshes(alpha, input.hasPendingPress('Mouse0'), running ? dt : 0);
 
   // The camera follows you, or a teammate you are spectating. Hide that body.
   const player = session.viewTarget();
@@ -358,6 +376,7 @@ function frame(now) {
   session.listener.y = camera.position.y;
   session.listener.z = camera.position.z;
   session.listener.yaw = player.viewYaw;
+  sound.setListener(camera); // 3D sound: your ears are where the camera is
 
   // Aiming down sights: follow the game's zoom amount smoothly between ticks.
   const L = player.loadout;

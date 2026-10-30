@@ -43,6 +43,12 @@ const boxes = [
   ...pair(-25.5, 0.3, 3, 1.2, 1.2, 1.2, 'crate'),
   ...pair(-27, 0, 17, 4, 1.2, 1, 'dark'),
   ...pair(-30.5, 0, -14, 2, 2.4, 2),
+  // Balconies on the plaza side of the buildings: high ground over mid, with
+  // a railing to peek over and stairs at both ends (twin on the east side).
+  ...pair(-15.75, 0, 0, 2.5, 1.8, 16, 'plate'),        // x -17..-14.5, z -8..8, top 1.8 m
+  ...pair(-14.65, 1.8, 0, 0.3, 0.8, 12, 'dark'),       // railing facing the plaza
+  ...[1.5, 1.2, 0.9, 0.6, 0.3].flatMap((h, i) => pair(-15.75, 0, 8.25 + i * 0.5, 2, h, 0.5, 'plate')),
+  ...[1.5, 1.2, 0.9, 0.6, 0.3].flatMap((h, i) => pair(15.75, 0, 8.25 + i * 0.5, 2, h, 0.5, 'plate')),
 ];
 
 const nav = mirroredNav({
@@ -63,6 +69,9 @@ const nav = mirroredNav({
     ['aHold', -27, 18.6, { hold: [-27.5, 2], tags: ['cover'] }],
     ['midHold', -1.5, 17.6, { hold: [0, -10], tags: ['cover'] }],
     ['bHold', 28.4, 15.8, { hold: [27.5, 2], tags: ['cover'] }],
+    // balconies: stairs at the south end, a spot on top watching the plaza
+    ['stairW', -15.75, 11.4], ['balcW', -15.75, 4, { hold: [0, -14], tags: ['cover'] }],
+    ['stairE', 15.75, 11.4], ['balcE', 15.75, 4, { hold: [0, -14], tags: ['cover'] }],
   ],
   halfLinks: [
     ['spawn', 'spawnW'], ['spawnW', 'spawnFW'], ['spawn', 'spawnE'], ['spawnE', 'spawnFE'],
@@ -73,17 +82,20 @@ const nav = mirroredNav({
     ['sW1', 'sW2'], ['sW2', 'sW3'], ['sW3', 'archW'], ['sW3', 'sW4'], ['sW4', 'siteA'],
     ['bS1', 'bS2'], ['bS2', 'bS3'], ['bS3', 'archE'], ['bS3', 'bS4'],
     ['aHold', 'sW1'], ['midHold', 'pW2'], ['bHold', 'bS1'], ['bHold', 'bS2'],
+    ['stairW', 'balcW'], ['stairW', 'pW2'], ['stairW', 'archW'],
+    ['stairE', 'balcE'], ['stairE', 'pE2'], ['stairE', 'archE'],
   ],
   crossLinks: [
     ['siteAa', 'bS4e'], ['bS4a', 'siteAe'], // through the sites
     ['fWa', 'fNe'], ['fWe', 'fNa'],         // around the fountain
+    ['balcWa', 'balcEe'], ['balcWe', 'balcEa'], // along each balcony
   ],
   routes: {
     A: ['sW1a', 'sW2a', 'sW3a', 'sW4a', 'siteAa', 'bS4e', 'bS3e', 'bS2e', 'bS1e'],
     M: ['pW1a', 'pW2a', 'fNa', 'fWa', 'fNe', 'pW2e', 'pW1e'],
     B: ['bS1a', 'bS2a', 'bS3a', 'bS4a', 'siteAe', 'sW4e', 'sW3e', 'sW2e', 'sW1e'],
   },
-  holdLanes: { aHold: 'A', sW4: 'A', midHold: 'M', bHold: 'B', bS4: 'B' },
+  holdLanes: { aHold: 'A', sW4: 'A', midHold: 'M', bHold: 'B', bS4: 'B', balcW: 'M', balcE: 'M' },
   laneSplit: 17,
 });
 
@@ -91,16 +103,21 @@ export default {
   id: 'plaza',
   name: 'Plaza',
   about: 'A wide open middle with long sightlines and tall pillars. Sites sit in narrow side streets.',
-  sky: 0xa8cfe8,
+  // Golden late afternoon: a low warm sun and long shadows.
+  sky: 0xf3d7ae,
+  skyTop: 0x6d9bd4,
   fogNear: 80,
   fogFar: 190,
-  light: { hemi: 1.05, sun: 1.8, shadowSize: 50 },
+  light: { hemi: 0.75, sun: 2.0, shadowSize: 50, sunColor: 0xffd49a, sunDir: [-30, 17, 12], skyColor: 0xffe6c8, groundColor: 0x6e5a40 },
+  // Wide open middle: a long, dark, outdoor echo.
+  acoustics: { time: 1.7, wet: 0.24, damping: 0.8 },
   palette: {
     floor: 0xc9bfa8,
     wall: 0xe2d8c3,
     dark: 0x7f8796,
     crate: 0xb98a4a,
     site: 0xd6b25e,
+    plate: 0xa69a86,
   },
   spawn: { x: 0, z: 36, yaw: 0 },
   teamSpawns: {

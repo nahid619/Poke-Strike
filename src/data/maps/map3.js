@@ -40,7 +40,12 @@ const boxes = [
   // Sites
   ...pair(-19.5, 0, 0, 7, 0.3, 6, 'site'),
   ...pair(-17, 0.3, 1.8, 1.2, 2.4, 1.2, 'crate'),
-  ...pair(-22.5, 0.3, -2, 1.2, 1.2, 1.2, 'crate'),
+  // Raised deck on each site: high ground facing the doorway from mid, with
+  // two steps up from the site and a crate on top for cover.
+  ...pair(-22.125, 0.3, -0.35, 1.75, 0.9, 3.7, 'plate'), // x -23..-21.25, z -2.2..1.5, top 1.2 m
+  ...pair(-21.05, 0.3, -0.35, 0.4, 0.6, 3.7, 'plate'),   // step (0.9 m)
+  ...pair(-20.65, 0.3, -0.35, 0.4, 0.3, 3.7, 'plate'),   // step (0.6 m)
+  ...pair(-22.4, 1.2, -1.7, 1, 1, 1, 'crate'),
 
   // Corridor cover
   ...pair(-24.5, 0, 18, 1.4, 2.4, 1.5, 'dark'),
@@ -66,6 +71,8 @@ const nav = mirroredNav({
     ['aHold', -22.6, 19.4, { hold: [-22.4, 6], tags: ['cover'] }],
     ['midHold', -2, 21.5, { hold: [0, 8], tags: ['cover'] }],
     ['bHold', 23.5, 14, { hold: [23.5, 4] }],
+    // the raised deck on site A (its twin is on site B)
+    ['aDeck', -22.5, -0.5, { hold: [-12.75, 0], tags: ['cover'] }],
   ],
   halfLinks: [
     ['spawn', 'spawnW'], ['spawn', 'spawnE'],
@@ -77,6 +84,7 @@ const nav = mirroredNav({
     ['mHall', 'hN'], ['hN', 'hNW'], ['hN', 'hNE'], ['hNW', 'hW'], ['hW', 'dA'], ['dA', 'siteA'],
     ['eB1', 'eB2'], ['eB2', 'eB3'], ['eB3', 'eB4'], ['eB3', 'bandE'], ['bandE', 'mHall'],
     ['aHold', 'wA1'], ['aHold', 'wA2'], ['midHold', 'mC1'], ['bHold', 'eB2'], ['bHold', 'eB3'],
+    ['aDeck', 'siteA'],
   ],
   crossLinks: [
     ['hWa', 'hNEe'], ['hWe', 'hNEa'],     // around the center pillar
@@ -87,7 +95,7 @@ const nav = mirroredNav({
     M: ['mC1a', 'mC2a', 'mHalla', 'hNa', 'hNWa', 'hWa', 'hNEe', 'hNe', 'mHalle', 'mC2e', 'mC1e'],
     B: ['eB1a', 'eB2a', 'eB3a', 'eB4a', 'siteAe', 'wA4e', 'wA3e', 'wA2e', 'wA1e'],
   },
-  holdLanes: { aHold: 'A', wA4: 'A', midHold: 'M', bHold: 'B', eB4: 'B' },
+  holdLanes: { aHold: 'A', wA4: 'A', midHold: 'M', bHold: 'B', eB4: 'B', aDeck: 'A' },
   laneSplit: 12,
 });
 
@@ -95,16 +103,21 @@ export default {
   id: 'foundry',
   name: 'Foundry',
   about: 'Tight corridors between solid blocks, enclosed site rooms, and tall cover. Close fights.',
-  sky: 0x8a9bb0,
-  fogNear: 50,
-  fogFar: 120,
-  light: { hemi: 1.15, sun: 1.4, shadowSize: 40 },
+  // Overcast and industrial: soft cool light, short shadows, haze.
+  sky: 0xa7b1bf,
+  skyTop: 0x76869b,
+  fogNear: 45,
+  fogFar: 115,
+  light: { hemi: 1.15, sun: 1.05, shadowSize: 40, sunColor: 0xdfe7f2, sunDir: [8, 32, -12], skyColor: 0xc8d2de, groundColor: 0x4a4a52 },
+  // Tight corridors and rooms: a short, bright echo.
+  acoustics: { time: 0.85, wet: 0.4, damping: 0.45 },
   palette: {
     floor: 0x7d776c,
     wall: 0xa49d90,
     dark: 0x555b68,
     crate: 0xa36f35,
     site: 0xc9a24a,
+    plate: 0x6f7884,
   },
   spawn: { x: 0, z: 32.5, yaw: 0 },
   teamSpawns: {

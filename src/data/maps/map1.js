@@ -44,6 +44,12 @@ const boxes = [
   ...pair(-20, 0, 18, 4, 1.2, 1, 'dark'),           // low wall
   ...pair(-25, 0, 10, 2, 2.4, 2),                   // pillars
   ...pair(-15, 0, -20, 2, 2.4, 2),
+
+  // Heaven: a raised platform over each site, against the outer wall, with
+  // a railing to peek over and stairs down to the site (twin over site A).
+  ...pair(28.25, 0, 9, 3.5, 2.0, 6, 'plate'),        // x 26.5..30, z 6..12, top 2 m
+  ...pair(26.65, 2.0, 9.5, 0.3, 0.75, 5, 'dark'),    // railing on the lane side (crouch behind it)
+  ...[1.7, 1.4, 1.1, 0.8, 0.5, 0.2].flatMap((h, i) => pair(28.25, 0, 5.75 - i * 0.5, 2.5, h, 0.5, 'plate')),
 ];
 
 // ---------------------------------------------------------------------------
@@ -77,6 +83,9 @@ const half = [
   ['aHold',   -20,  19.6,  { hold: [-20, 2], tags: ['cover'] }], // behind the low wall in the west lane
   ['midHold',  -5,   7.2,  { hold: [0, -12], tags: ['cover'] }], // behind the low wall in mid
   ['bHold',    17,  21.5,  { hold: [20, 4], tags: ['cover'] }],  // beside the pillar in the east lane
+  // Heaven over site B (its twin is over site A): stairs at the bottom, the spot on top
+  ['bStairs', 28.25, 1.8],
+  ['bHeaven',  28.4,  10,  { hold: [20, 0], tags: ['cover'] }],
 ];
 
 // Links within the south half; each gets a twin on the north half.
@@ -92,6 +101,7 @@ const halfLinks = [
   ['aHold', 'aLane1'], ['aHold', 'aLane2'],
   ['midHold', 'mid'],
   ['bHold', 'bLane1'], ['bHold', 'bLane2'],
+  ['bStairs', 'bHeaven'], ['bStairs', 'bLane4'],
 ];
 
 // Lane routes, from the south (ally) spawn side to the north (enemy) side.
@@ -112,7 +122,7 @@ const nav = mirroredNav({
     ['ringWe', 'ringNa'],
   ],
   routes,
-  holdLanes: { aHold: 'A', aLane4: 'A', midHold: 'M', bHold: 'B', bLane4: 'B' },
+  holdLanes: { aHold: 'A', aLane4: 'A', midHold: 'M', bHold: 'B', bLane4: 'B', bHeaven: 'B' },
   laneSplit: 10,
 });
 
@@ -120,16 +130,21 @@ export default {
   id: 'crossroads',
   name: 'Crossroads',
   about: 'Three even lanes split by long walls, with connectors to a mid area around a center block.',
-  sky: 0x9fc7e8,
+  // Clear midday.
+  sky: 0xcfe3f2,
+  skyTop: 0x5f9cdc,
   fogNear: 70,
   fogFar: 170,
-  light: { hemi: 1.0, sun: 1.7, shadowSize: 46 },
+  light: { hemi: 0.9, sun: 1.85, shadowSize: 46, sunColor: 0xfff3df, sunDir: [14, 28, 10], skyColor: 0xdcecff, groundColor: 0x6a5e4a },
+  // Medium-sized lanes: a medium echo.
+  acoustics: { time: 1.2, wet: 0.3, damping: 0.6 },
   palette: {
     floor: 0xbdb3a0,
     wall: 0xd9d3c6,
     dark: 0x7a8091,
     crate: 0xc8913f,
     site: 0xd6b25e,
+    plate: 0x8d97a6,
   },
   spawn: { x: 0, z: 35, yaw: 0 },
   teamSpawns: {

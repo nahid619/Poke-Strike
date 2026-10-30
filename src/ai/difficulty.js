@@ -5,6 +5,8 @@
 //   teamwork     0 = none, 1 = basic (share sightings, trail, trade nearby),
 //                2 = good (also wait for teammates at chokes, trade from farther)
 //   damageScale  multiplier on damage the bot deals (Easy enemies hit softer)
+// and peek (jiggle-peeking) and adapt (learning your spots; see tactics.js).
+// Easy enemies also only use the simplest team plans.
 import { BOT_SKILL } from './bot.js';
 
 export const DIFFICULTY = {
@@ -23,6 +25,8 @@ export const DIFFICULTY = {
     retreatHealth: 0,
     abilityUse: 0.25,
     teamwork: 0,
+    peek: 0,           // never jiggle-peeks
+    adapt: 0,          // doesn't learn where you play
     damageScale: 0.7,
   },
   medium: {
@@ -40,6 +44,8 @@ export const DIFFICULTY = {
     retreatHealth: 35,
     abilityUse: 0.6,
     teamwork: 1,
+    peek: 0.5,
+    adapt: 1,          // pre-aims your favorite spots, utility when entering
     damageScale: 1,
   },
   hard: {
@@ -57,6 +63,8 @@ export const DIFFICULTY = {
     retreatHealth: 45,
     abilityUse: 1,
     teamwork: 2,
+    peek: 0.85,
+    adapt: 2,          // also utilities your favorite spots whenever they come into view
     damageScale: 1,
   },
 };

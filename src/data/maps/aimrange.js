@@ -9,6 +9,8 @@ export default {
   fogNear: 60,
   fogFar: 160,
   light: { hemi: 1.4, sun: 1.2, shadowSize: 30 },
+  // An indoor booth.
+  acoustics: { time: 0.7, wet: 0.28, damping: 0.5 },
   palette: {
     floor: 0x46506a,
     wall: 0x4f5b76,

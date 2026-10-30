@@ -1,7 +1,7 @@
 {
   "name": "poke-strike",
   "private": true,
-  "version": "1.1.1",
+  "version": "1.7.0",
   "description": "A single-player, Valorant-style tactical shooter against bots that runs in the browser. Unofficial fan project.",
   "license": "MIT",
   "author": "Nahid Hasan (nahid619)",
@@ -14,8 +14,10 @@
     "build": "vite build",
     "build:offline": "vite build --config vite.offline.config.js",
     "preview": "vite preview",
-    "test": "node tests/unit.mjs && node tests/validate-maps.mjs",
-    "test:maps": "node tests/validate-maps.mjs"
+    "test": "node tests/unit.mjs && node tests/audio.mjs && node tests/validate-maps.mjs && node tests/sim.mjs",
+    "test:maps": "node tests/validate-maps.mjs",
+    "test:audio": "node tests/audio.mjs",
+    "test:bots": "node tests/sim.mjs"
   },
   "dependencies": {
     "three": "0.169.0"

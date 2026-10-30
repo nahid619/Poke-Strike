@@ -54,10 +54,26 @@ export class World {
     this.smokes = []; // active smoke spheres { x, y, z, r } (managed by Zones)
   }
 
-  addBox(minX, minY, minZ, maxX, maxY, maxZ) {
-    const box = { minX, minY, minZ, maxX, maxY, maxZ };
+  /** `surface` is what the top of the box sounds like to walk on (see mapkit.js). */
+  addBox(minX, minY, minZ, maxX, maxY, maxZ, surface = 'concrete') {
+    const box = { minX, minY, minZ, maxX, maxY, maxZ, surface };
     this.boxes.push(box);
     return box;
+  }
+
+  /**
+   * What a character standing at (x, y, z) is standing on: the surface of the
+   * highest box top under its feet, or 'concrete' if there is none.
+   */
+  surfaceAt(x, y, z, r = 0.2) {
+    const r2 = r * r;
+    let best = null;
+    for (const b of this.boxes) {
+      if (Math.abs(b.maxY - y) > 0.06) continue;
+      if (circleRectDist2(x, z, b) >= r2) continue;
+      if (!best || b.maxY > best.maxY) best = b;
+    }
+    return best?.surface ?? 'concrete';
   }
 
   overlapsCylinder(x, y, z, r, h) {

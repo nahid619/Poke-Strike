@@ -1,7 +1,26 @@
 // Waypoint navigation: a graph of points and straight links, searched with A*.
+/**
+ * The floor height a character would stand on at (x, z): the top of the
+ * highest box under that point that has headroom above it (so platforms and
+ * stairs count, and the inside of a wall doesn't). Maps keep walkable areas
+ * free of overhangs, so each (x, z) has one floor.
+ */
+export function standHeight(boxes, x, z, headroom = 1.8) {
+  const under = boxes.filter((b) => Math.abs(x - b.x) <= b.w / 2 && Math.abs(z - b.z) <= b.d / 2);
+  let best = 0;
+  for (const b of under) {
+    const top = b.y + b.h;
+    if (top <= best || top > 4.5) continue;
+    const blocked = under.some((o) => o !== b && o.y < top + headroom && o.y + o.h > top + 0.01);
+    if (!blocked) best = top;
+  }
+  return best;
+}
+
 export class NavGraph {
   constructor(map) {
-    this.nodes = map.waypoints.map((w) => ({ ...w, links: [] }));
+    // Waypoints get their floor height (y) from the map, unless they set one.
+    this.nodes = map.waypoints.map((w) => ({ ...w, y: w.y ?? standHeight(map.boxes, w.x, w.z), links: [] }));
     this.byId = new Map(this.nodes.map((n) => [n.id, n]));
     for (const [a, b] of map.links) {
       const na = this.byId.get(a);
@@ -13,18 +32,22 @@ export class NavGraph {
     }
   }
 
-  /** Closest waypoint to a position (optionally one that `visible(node)` accepts). */
-  nearest(x, z, visible = null) {
+  /**
+   * Closest waypoint to a position (optionally one that `visible(node)`
+   * accepts). Pass `y` to prefer waypoints on the same level (a platform
+   * right above you is not "close").
+   */
+  nearest(x, z, visible = null, y = null) {
     let best = null;
     let bestD = Infinity;
     for (const n of this.nodes) {
-      const d = (n.x - x) ** 2 + (n.z - z) ** 2;
+      const d = (n.x - x) ** 2 + (n.z - z) ** 2 + (y === null ? 0 : (4 * (n.y - y)) ** 2);
       if (d < bestD && (!visible || visible(n))) {
         bestD = d;
         best = n;
       }
     }
-    return best ?? (visible ? this.nearest(x, z) : null);
+    return best ?? (visible ? this.nearest(x, z, null, y) : null);
   }
 
   random() {

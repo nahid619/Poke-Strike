@@ -1,9 +1,13 @@
 import { SPIKE } from '../game/spike.js';
-import { WEAPONS, PRIMARIES } from '../data/weapons.js';
+import { WEAPONS } from '../data/weapons.js';
+import { BUY_ORDER, itemOf } from '../game/economy.js';
 
-const BUY_INFO = {
-  rifle: 'Automatic. One-shot headshots. Right click: zoom 1.25x.',
-  sniper: 'Bolt action. One-shot body shots. Right click: 2.5x, again for 5x.',
+const TIER_NOTE = {
+  pistol: 'Pistol round.',
+  full: 'Your team is full buying.',
+  force: 'Your team is force buying.',
+  bonus: 'Bonus round: your team keeps its guns.',
+  eco: 'Your team is saving (eco).',
 };
 // In-match HUD: health, shield, ammo, weapon slots, crosshair, hit markers.
 // Text is only written to the DOM when it changes.
@@ -34,6 +38,7 @@ export class Hud {
       abilities: $('hud-abilities'),
       ab: {
         q: { root: $('ab-q'), name: $('ab-q-name'), cd: $('ab-q-cd'), fill: $('ab-q-fill'), ch: $('ab-q-ch') },
+        x: { root: $('ab-x'), name: $('ab-x-name'), cd: $('ab-x-cd'), fill: $('ab-x-fill'), ch: $('ab-x-ch') },
         e: { root: $('ab-e'), name: $('ab-e-name'), cd: $('ab-e-cd'), fill: $('ab-e-fill'), ch: $('ab-e-ch') },
       },
       fx: {
@@ -48,7 +53,8 @@ export class Hud {
       board: $('scoreboard'),
       callouts: $('callouts'),
       mhSide: $('mh-side'), announce: $('announce'),
-      buy: $('buy'), buyList: $('buy-list'), buyHint: $('buy-hint'),
+      buy: $('buy'), buyList: $('buy-list'), buyHint: $('buy-hint'), buyHintText: $('buy-hint-text'),
+      buyCredits: $('buy-credits'), buyNote: $('buy-note'),
       objective: $('objective'), objText: $('objective-text'), objBar: $('objective-bar'), objFill: $('objective-fill'),
     };
     this.cache = {};
@@ -84,9 +90,9 @@ export class Hud {
       });
       this._set('reserve', L.infiniteAmmo ? '\u221e' : w.reserve, (v) => (e.reserve.textContent = v));
       this._set('weapon', w.def.name, (v) => (e.weapon.textContent = v));
-      this._set('slots', L.index + ':' + L.weapons.map((x) => x.def.id).join(','), () => {
+      this._set('slots', L.index + ':' + L.weapons.map((x) => x?.def.id ?? '-').join(','), () => {
         e.slots.innerHTML = L.weapons
-          .map((x, i) => `<li class="${i === L.index ? 'on' : ''}"><b>${i + 1}</b>${x.def.name}</li>`)
+          .map((x, i) => (x ? `<li class="${i === L.index ? 'on' : ''}"><b>${i + 1}</b>${x.def.name}</li>` : ''))
           .join('');
       });
       const p = L.reloading ? L.reloadProgress : -1;
@@ -111,6 +117,18 @@ export class Hud {
       e.agentRole.textContent = kit.agent.role;
       e.agent.style.setProperty('--agent', kit.agent.color);
     });
+    // The ultimate: points earned toward it, as pips; ready when full.
+    const x = kit.slots.x;
+    this._set('hasUlt', !!x, (v) => (e.ab.x.root.hidden = !v));
+    if (x) {
+      const pts = Math.min(x.ult, player.ultPoints ?? 0);
+      const state = pts < x.ult ? 'cooling' : !player.canUseAbilities ? 'blocked' : 'ready';
+      this._set('xname', x.def.name, (v) => (e.ab.x.name.textContent = v));
+      this._set('xstate', state, (v) => (e.ab.x.root.dataset.state = v));
+      this._set('xch', `${pts}/${x.ult}`, () => (e.ab.x.ch.textContent = '\u25cf'.repeat(pts) + '\u25cb'.repeat(x.ult - pts)));
+      this._set('xcd', pts >= x.ult ? 'Ready' : '', (v) => (e.ab.x.cd.textContent = v));
+      this._set('xfill', pts, () => (e.ab.x.fill.style.height = `${Math.round((1 - pts / x.ult) * 100)}%`));
+    }
     for (const key of ['q', 'e']) {
       const s = kit.slots[key];
       const ui = e.ab[key];
@@ -128,16 +146,35 @@ export class Hud {
     }
   }
 
-  /** The buy menu (B) and the hint that it exists. */
-  buyMenu({ open, canBuy, primary, hint }) {
+  /**
+   * The buy menu (B) and the hint that it exists. `credits` is null in the
+   * test range (everything is free). `owned` and `bought` are item ids.
+   */
+  buyMenu({ open, canBuy, hint, credits = null, owned = [], bought = [], shield = 0, income = 0, tier = null }) {
     const e = this.el;
     if (!e.buy) return;
-    this._set('buy', `${open}|${primary}`, () => {
+    const money = credits === null ? null : credits;
+    this._set('buy', `${open}|${money}|${owned.join()}|${bought.join()}|${shield}|${tier}`, () => {
       e.buy.hidden = !open;
-      e.buyList.innerHTML = PRIMARIES.map((id, i) => `
-        <li class="${id === primary ? 'on' : ''}"><kbd>${i + 1}</kbd><b>${WEAPONS[id].name}</b><span>${BUY_INFO[id] ?? ''}</span></li>`).join('');
+      if (!open) return;
+      e.buyCredits.textContent = money === null ? 'Free in the test range' : `${money.toLocaleString()} credits`;
+      e.buyNote.textContent = money === null ? '' : `${income ? `Last round: +${income.toLocaleString()}. ` : ''}${TIER_NOTE[tier] ?? ''}`;
+      e.buyList.innerHTML = BUY_ORDER.map((id, i) => {
+        const item = itemOf(id);
+        const have = owned.includes(id) || (item.amount && shield >= item.amount);
+        const mine = bought.includes(id);
+        const poor = money !== null && !have && item.price > money;
+        const price = money === null ? '' : item.price.toLocaleString();
+        const cls = [have ? 'on' : '', poor ? 'poor' : ''].join(' ');
+        const tag = mine ? 'Bought: press again to sell' : have ? 'Owned' : item.about;
+        return `<li class="${cls}"><kbd>${(i + 1) % 10}</kbd><b>${item.name}</b><em>${price}</em><span>${tag}</span></li>`;
+      }).join('');
     });
-    this._set('buyHint', !!(hint && canBuy && !open), (v) => (e.buyHint.hidden = !v));
+    const hintText = money === null ? 'Buy' : `Buy (${money.toLocaleString()})`;
+    this._set('buyHint', hint && canBuy && !open ? hintText : '', (v) => {
+      e.buyHint.hidden = !v;
+      if (v) e.buyHintText.textContent = v;
+    });
   }
 
   /** Full-screen feedback for what is happening to you. */
@@ -175,7 +212,7 @@ export class Hud {
     const side = spike ? (m.sideOf(m.controlled.team) === 'attack' ? 'Attacking' : 'Defending') : '';
     this._set('mhSide', side, (v) => (e.mhSide.textContent = v));
     this._updateObjective(m);
-    this._set('mhRound', m.round, (v) => (e.mhRound.textContent = `Round ${v}`));
+    this._set('mhRound', m.deathmatch ? `dm${m.dmTarget}` : m.round, () => (e.mhRound.textContent = m.deathmatch ? `First to ${m.dmTarget}` : `Round ${m.round}`));
     const pips = (team) => m.team(team).map((c) => (c.alive ? 'up' : 'down')).join(',');
     this._set('pipsAlly', pips('ally'), (v) => (e.pipsAlly.innerHTML = v.split(',').map((k) => `<li class="${k}"></li>`).join('')));
     this._set('pipsEnemy', pips('enemy'), (v) => (e.pipsEnemy.innerHTML = v.split(',').map((k) => `<li class="${k}"></li>`).join('')));
@@ -184,10 +221,18 @@ export class Hud {
     let title = '';
     let sub = '';
     let kind = '';
-    if (m.phase === 'buy') {
+    if (m.phase === 'buy' && m.deathmatch) {
+      title = 'Team deathmatch';
+      sub = `${m.map.name}. First to ${m.dmTarget} kills. Starts in ${Math.max(1, Math.ceil(m.timer))}`;
+    } else if (m.phase === 'buy') {
       title = `Round ${m.round}`;
       sub = `${m.round === 1 ? `${m.map.name}. ` : ''}Starts in ${Math.max(1, Math.ceil(m.timer))}`;
-    } else if (m.phase === 'end' || m.phase === 'over') {
+    } else if (m.phase === 'over' && m.deathmatch) {
+      const { ally, enemy } = m.score;
+      kind = ally > enemy ? 'won' : enemy > ally ? 'lost' : 'draw';
+      title = kind === 'won' ? 'Victory' : kind === 'lost' ? 'Defeat' : 'Draw';
+      sub = `${ally} to ${enemy} kills`;
+    } else if ((m.phase === 'end' || m.phase === 'over') && m.lastRound) {
       const r = m.lastRound;
       kind = r.winner === 'ally' ? 'won' : r.winner === 'enemy' ? 'lost' : 'draw';
       title = kind === 'won' ? 'Round won' : kind === 'lost' ? 'Round lost' : 'Round drawn';

@@ -16,6 +16,13 @@
 // Senses: sight (range, field of view, walls and smoke block it), hearing
 // (running, gunshots, abilities; walking is silent), and team intel (what
 // teammates spotted). Difficulty levels tune BOT_SKILL in Phase 7.
+//
+// Each round the team picks a plan (see tactics.js) and hands out orders:
+// rushers never stop, fakers make noise on one site and then rotate, lurkers
+// sneak to the other lane and wait, and sneakers walk (Shift) once past the
+// middle of the map until the hit goes in. Bots jiggle-peek corners (tap
+// left and right) when they lose sight of someone or hear footsteps close,
+// and pre-aim the spots where their team keeps getting killed.
 import { MOVE } from '../game/character.js';
 import { botAbilities } from './botabilities.js';
 import { SPIKE } from '../game/spike.js';
@@ -39,6 +46,8 @@ export const BOT_SKILL = {
   retreatHealth: 35,       // back off below this health (if teammates are alive); 0 = never
   abilityUse: 0.6,         // see src/ai/difficulty.js
   teamwork: 1,
+  peek: 0.5,               // chance to jiggle-peek instead of standing still (0 = never)
+  adapt: 1,                // 0 = ignore, 1 = pre-aim spots the team keeps dying to, 2 = also always utility them
 };
 
 export const STATE = {
@@ -55,7 +64,7 @@ const dist2d = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const blankIntent = () => ({
   forward: 0, right: 0, walk: false, jump: false,
   fireHeld: false, firePressed: false, reload: false, switchTo: null, switchDelta: 0,
-  abilityQ: false, abilityE: false, interact: false, crouch: false,
+  abilityQ: false, abilityE: false, abilityX: false, interact: false, crouch: false,
   adsPressed: false, adsHeld: false, adsHold: true,
 });
 
@@ -120,6 +129,15 @@ export class BotController {
     this.guardFor = null;
     this.staged = false;
     this.stageStart = null;
+    this.endHold = null;     // lurk or fake: waiting at the end of the route
+    this.danger = null;      // a spot the team keeps dying to, in view right now
+    this.dangerSince = null;
+    this.pastMiddle = false;
+    this.peeking = false;    // jiggle the corner where a target just disappeared
+    this.peekPause = false;  // jiggle while pausing at a choke
+    this.peekHeard = false;  // jiggle toward footsteps heard close by
+    this.jiggleTimer = 0;
+    this.jiggleDir = 1;
   }
 
   /** Per-round instructions from the team: { kind, route, leader, holdNode }. */
@@ -127,6 +145,13 @@ export class BotController {
     this.orders = orders;
     this.state = orders.kind === 'anchor' || orders.kind === 'defend' ? STATE.HOLD : STATE.PUSH;
     this.routeIndex = null;
+    this.staged = false;
+    this.endHold = null;
+    if (orders.push) {
+      // An early push: hold an aggressive spot for a while, then fall back.
+      this.holdSpot = { node: orders.push.node, look: orders.push.look, push: true };
+      this.holdUntil = 0;
+    }
   }
 
   /** A teammate just died: trade by rushing the killer if close enough. */
@@ -246,12 +271,33 @@ export class BotController {
         intel.spotted(best, this.time, lane);
       }
     } else {
+      if (this.targetVisible && this.target) this.peeking = Math.random() < (s.peek ?? 0); // just lost sight
       this.targetVisible = false;
       if (this.target) {
         this.lostTimer += s.perceiveEvery;
         if (this.lostTimer > 1.5 || !this.target.alive) this._loseTarget();
       }
     }
+
+    // Spots the team keeps dying to: pre-aim the closest one in view.
+    const hot = (s.adapt ?? 0) > 0 ? this.ctx.ai?.hot?.[c.team] : null;
+    let danger = null;
+    if (hot?.length) {
+      let bestHot = 30;
+      for (const h of hot) {
+        const d = dist2d(h, c.pos);
+        if (d < bestHot && d > 3 && world.lineOfSight(eye, h, false)) {
+          bestHot = d;
+          danger = h;
+        }
+      }
+    }
+    if (danger !== this.danger) {
+      this.danger = danger;
+      this.dangerSince = danger ? this.time : null;
+    }
+    const enemyHalf = c.team === 'ally' ? 'e' : 'a';
+    this.pastMiddle = !!this.nav.nearest(c.pos.x, c.pos.z)?.id.endsWith(enemyHalf);
   }
 
   _loseTarget() {
@@ -288,7 +334,57 @@ export class BotController {
     if (!this.target) {
       this.alertYaw = yawTo(c.pos, n);
       this.alertTimer = 1.6;
+      this.peekHeard = n.distance < 15 && Math.random() < (this.skill.peek ?? 0) * 0.6;
     }
+  }
+
+  /**
+   * Move quietly (Shift)? When enemies were heard close by, or when the plan
+   * says sneak and the bot is past the middle of the map (until the hit).
+   */
+  _quiet() {
+    const o = this.orders;
+    if (o?.rush) return false;
+    if (this._shouldWalk()) return true;
+    if (!o?.sneak) return false;
+    if (o.plan?.go && !o.lurk) return false; // the hit is on: speed over stealth
+    return this.pastMiddle;
+  }
+
+  /** Jiggle-peek: tap left and right around a corner to look without committing. */
+  _jiggle(c, dt, intent, yaw) {
+    this.jiggleTimer -= dt;
+    if (this.jiggleTimer <= 0) {
+      this.jiggleTimer = rand(0.18, 0.3);
+      this.jiggleDir = -this.jiggleDir;
+    }
+    this._strafe(c, intent, this.jiggleDir, yaw);
+    intent.walk = false;
+  }
+
+  /** Take an ultimate orb if one is close, on this level, and nobody is in sight. */
+  _grabOrb(c, dt, intent) {
+    const x = c.abilities?.slots.x;
+    if (this.target || !x || (c.ultPoints ?? 0) >= x.ult) return false;
+    const orb = this.ctx.ai?.orbs?.active.find((o) => dist2d(o, c.pos) < 9 && Math.abs(o.y - c.pos.y) < 0.5);
+    if (!orb) return false;
+    this._goToPoint(c, dt, intent, orb);
+    return true;
+  }
+
+  /** Should the waiting attackers go in now? */
+  _planGo(plan, timeLeft) {
+    if (timeLeft < 40) return true;
+    if (plan.firstReady !== null && this.time - plan.firstReady > plan.stageTimeout) return true;
+    const bot = (m) => m.alive && m.controller === m.brain;
+    // A fake: wait until the fakers are done (or dead), then a moment for defenders to rotate.
+    if (!plan.fakeDone && plan.members.some((m) => bot(m) && m.brain.orders?.fake)) return false;
+    if (plan.fakeDoneAt !== null && this.time - plan.fakeDoneAt < 2) return false;
+    if (plan.goBy !== null && timeLeft > plan.goBy) return false; // slow: hit late
+    const waiting = plan.members.filter((m) => bot(m) && !m.brain.orders?.lurk && !m.brain.orders?.fake);
+    const ready = waiting.filter((m) => plan.ready.has(m)).length;
+    const need = plan.name === 'default' ? Math.min(waiting.length, 3) : waiting.length;
+    return ready >= need;
   }
 
   /** Recently heard an enemy close by: move quietly. */
@@ -339,7 +435,11 @@ export class BotController {
     this._turn(c, dt, trueYaw + this.aimErr.yaw - c.recoilYaw * s.recoilControl,
       truePitch + this.aimErr.pitch - c.recoilPitch * s.recoilControl, 1);
 
-    if (!this.targetVisible) return; // hold the angle where it was last seen
+    if (!this.targetVisible) {
+      // Hold the angle where it was last seen, jiggling the corner if peeking.
+      if (this.peeking && this.lostTimer > 0.15) this._jiggle(c, dt, intent, trueYaw);
+      return;
+    }
     if (this.reaction > 0) {
       this.reaction -= dt;
       return;
@@ -402,14 +502,19 @@ export class BotController {
     }
     // Site defenders take their own lane to their spot instead of all crossing mid.
     const avoidLane = this.orders?.kind === 'defend' && this.orders.site !== 'M' && !this.holdSpot ? 'M' : null;
-    const arrived = this._goTo(c, dt, intent, spot.node, { walk: this._shouldWalk(), avoidLane });
+    const arrived = this._goTo(c, dt, intent, spot.node, { walk: this._quiet(), avoidLane });
     this.holdArrived = arrived ? this.time : null; // when it got to the spot (traps go down then)
     this.holdLook = spot.look ?? null;
     if (arrived) {
-      // Watch the angle, with a slow sweep; turn toward noises.
-      const look = spot.look ?? { x: c.pos.x, z: c.pos.z - 10 };
+      if (spot.push && !this.holdUntil) this.holdUntil = this.time + (this.orders?.push?.holdFor ?? 10);
+      // Watch the angle (or a spot the team keeps dying to), with a slow
+      // sweep; turn toward noises, jiggling toward close footsteps.
+      const look = (!spot.push && this.danger) || spot.look || { x: c.pos.x, z: c.pos.z - 10 };
       let yaw = yawTo(c.pos, look) + Math.sin(this.time * 0.7 + this.seed) * 0.15;
-      if (this.alertTimer > 0 && this.alertYaw !== null) yaw = this.alertYaw;
+      if (this.alertTimer > 0 && this.alertYaw !== null) {
+        yaw = this.alertYaw;
+        if (this.peekHeard) this._jiggle(c, dt, intent, yaw);
+      }
       this._turn(c, dt, yaw, 0, 0.6);
     }
 
@@ -421,8 +526,8 @@ export class BotController {
       return;
     }
     if (this.orders?.kind === 'anchor' && !this.holdSpot) {
-      if (timeLeft < 45) {
-        this.state = STATE.PUSH; // late in the round, anchors push too
+      if (timeLeft < (this.orders.pushAt ?? 45)) {
+        this.state = STATE.PUSH; // late in the round (or when the plan says), anchors push too
         return;
       }
       this._maybeRotate(c);
@@ -477,10 +582,16 @@ export class BotController {
       return;
     }
 
-    // Supports stay a node behind their entry while it is alive.
+    // Supports stay a node behind their entry while it is alive. If they are
+    // far behind, or the entry is in a fight, they move up to its node to
+    // catch up and trade instead of waiting back where they are.
     const leader = (this.skill.teamwork ?? 1) >= 1 ? this.orders.leader : null;
-    if (leader?.alive && leader.controller?.routeIndex !== null && leader.controller?.routeIndex !== undefined) {
-      const limit = leader.controller.routeIndex - 1;
+    const lc = leader?.controller;
+    // Only trail an entry that is actually on the route (not off searching or retreating).
+    const onRoute = lc?.state === STATE.PUSH || lc?.state === STATE.FIGHT;
+    if (leader?.alive && onRoute && lc.routeIndex !== null && lc.routeIndex !== undefined) {
+      const close = dist2d(c.pos, leader.pos) < 9;
+      const limit = lc.state === STATE.FIGHT || !close ? lc.routeIndex : lc.routeIndex - 1;
       if (this.routeIndex > limit) {
         const ahead = route[Math.min(route.length - 1, Math.max(0, limit + 1))];
         this._turn(c, dt, yawTo(c.pos, ahead), 0, 0.6);
@@ -488,18 +599,51 @@ export class BotController {
       }
     }
 
+    if (this._grabOrb(c, dt, intent)) return;
+    const o = this.orders;
+    const plan = o.plan;
     const node = route[this.routeIndex];
     const next = route[this.routeIndex + 1] ?? node;
 
-    // Attackers group up at a staging point two waypoints before the site,
-    // then go in together, using their abilities on the way in.
-    const stage = (this.orders.stageIndex ?? Math.max(0, route.length - 2)) + 1; // waiting once arrived there
-    if (this.orders.kind === 'attack' && !this.orders.lurk && !this.staged && this.routeIndex === stage) {
-      this.stageStart ??= this.time;
-      const needed = Math.min(3, this._attackersAlive(c) - 1);
-      const ready = this._teammatesNear(c, 14) >= needed;
-      if (!ready && this.time - this.stageStart < 8 && timeLeft > 40) {
-        this._turn(c, dt, yawTo(c.pos, node), 0, 0.6); // wait here, watching the way in
+    // Lurkers and fakers wait at the end of their route before moving on.
+    if (this.endHold) {
+      const h = this.endHold;
+      const spike = this.ctx.ai?.objective?.spike;
+      const done = h.kind === 'fake'
+        ? this.time >= h.until
+        : (plan?.go && this.time >= (plan.goAt ?? 0) + 5) || timeLeft < 35 || !!spike?.planted;
+      if (!done) {
+        if (this.pauseTimer > 0) this.pauseTimer -= dt; // "entering": the fake's utility fires now
+        const look = h.kind === 'fake' ? next : o.lurkLook ?? next;
+        const yaw = this.alertTimer > 0 && this.alertYaw !== null ? this.alertYaw : yawTo(c.pos, look);
+        if (h.kind === 'fake' || this.peekHeard) this._jiggle(c, dt, intent, yaw); // fakers show themselves
+        this._turn(c, dt, yaw, 0, 0.7);
+        return;
+      }
+      if (h.kind === 'fake' && plan) {
+        plan.fakeDone = true;
+        plan.fakeDoneAt ??= this.time;
+      }
+      this.endHold = null;
+      this.routeIndex = route.length; // route done: the objective takes over (the real site)
+      return;
+    }
+
+    // Attackers group up at a staging point out of sight of the site, then go
+    // in together when the plan says (see _planGo), using abilities on the way in.
+    const stage = (o.stageIndex ?? Math.max(0, route.length - 2)) + 1; // waiting once arrived there
+    if (o.kind === 'attack' && plan?.wait && !o.lurk && !o.fake && !this.staged && this.routeIndex === stage) {
+      plan.ready.add(c);
+      plan.firstReady ??= this.time;
+      if (!plan.go && this._planGo(plan, timeLeft)) {
+        plan.go = true;
+        plan.goAt = this.time;
+      }
+      if (!plan.go) {
+        // Wait here, watching the way in (and turning to noises).
+        const yaw = this.alertTimer > 0 && this.alertYaw !== null ? this.alertYaw : yawTo(c.pos, node);
+        if (this.alertTimer > 0 && this.peekHeard) this._jiggle(c, dt, intent, yaw);
+        this._turn(c, dt, yaw, 0, 0.6);
         return;
       }
       this.staged = true;
@@ -515,6 +659,7 @@ export class BotController {
         this.waited += 0.25;
       }
       const yaw = this.alertTimer > 0 && this.alertYaw !== null ? this.alertYaw : yawTo(c.pos, next);
+      if (this.peekPause) this._jiggle(c, dt, intent, yaw); // jiggle the corner ahead
       this._turn(c, dt, yaw, 0, 0.7);
       return;
     }
@@ -525,15 +670,25 @@ export class BotController {
         this.checkTimer = this.time + 0.5;
         const eye = { x: c.pos.x, y: c.pos.y + c.eyeHeight, z: c.pos.z };
         this.checking = this.orders.checkSpots
-          .filter((n) => this.ctx.world.lineOfSight(eye, { x: n.x, y: 1.4, z: n.z }))
+          .filter((n) => this.ctx.world.lineOfSight(eye, { x: n.x, y: n.y + 1.4, z: n.z }))
           .sort((a, b) => dist2d(a, c.pos) - dist2d(b, c.pos))[0] ?? null;
       }
       lookAt = this.checking;
     }
-    if (this._goTo(c, dt, intent, node, { walk: this._shouldWalk(), lookAt })) {
-      if (node.tags?.includes('choke') && Math.random() < 0.7) {
+    if (this._goTo(c, dt, intent, node, { walk: this._quiet(), lookAt })) {
+      if ((o.lurk || o.fake) && this.routeIndex === route.length - 1) {
+        // End of a lurk or fake route: wait here (see endHold above).
+        this.endHold = o.fake ? { kind: 'fake', until: this.time + rand(2, 3.5) } : { kind: 'lurk' };
+        if (o.fake) {
+          this.pauseTimer = 0.6;
+          this.waited = 0;
+        }
+        return;
+      }
+      if (!o.rush && node.tags?.includes('choke') && Math.random() < 0.7) {
         this.pauseTimer = rand(0.5, 1.1);
         this.waited = 0;
+        this.peekPause = Math.random() < (this.skill.peek ?? 0) * 0.7;
       }
       this.routeIndex++;
     }
@@ -544,7 +699,7 @@ export class BotController {
     const point = intel ?? this.searchPoint;
     if (point) {
       const node = this.nav.nearest(point.x, point.z);
-      if (this._goTo(c, dt, intent, node, { walk: this._shouldWalk() })) this.searchPoint = null;
+      if (this._goTo(c, dt, intent, node, { walk: this._quiet() })) this.searchPoint = null;
       return;
     }
     // Nothing known: sweep the other team's half.
@@ -677,7 +832,7 @@ export class BotController {
     const options = this.nav.nodes
       .filter((n) => !n.id.startsWith('spawn') && !taken.has(n))
       .map((n) => ({ n, d: dist2d(n, p) }))
-      .filter(({ n, d }) => d >= 4 && d <= 12 && world.lineOfSight({ x: n.x, y: 1.4, z: n.z }, target, false))
+      .filter(({ n, d }) => d >= 4 && d <= 12 && world.lineOfSight({ x: n.x, y: n.y + 1.4, z: n.z }, target, false))
       .sort((a, b) => a.d - b.d)
       .slice(0, 4);
     if (!options.length) return this.nav.nearest(p.x, p.z);
@@ -691,13 +846,35 @@ export class BotController {
     return full[full.indexOf(this.orders.siteNode) + 1] ?? null;
   }
 
-  /** Walk to an exact point: by waypoints, then straight once it is clear. */
+  /**
+   * Walk to an exact point (a dropped spike, a planted spike): by waypoints to
+   * the nearest one with a clear straight line to it, then straight at it.
+   * If that makes no progress for a few seconds, try the next-best waypoint.
+   */
   _goToPoint(c, dt, intent, p) {
     const d = dist2d(c.pos, p);
     if (d < 0.5) return true;
-    if (d < 8 && this.ctx.world.walkable(c.pos, p, c.pos.y, c.radius + 0.05, c.height)) {
-      const yaw = yawTo(c.pos, p);
-      this._turn(c, dt, yaw, 0, 0.8);
+    const world = this.ctx.world;
+    const r = c.radius + 0.05;
+    if (this._pointFor !== p) {
+      this._pointFor = p;
+      this._pointTried = new Set();
+      this._pointNode = null;
+    }
+    // No progress for a while: give up on this waypoint and try another.
+    if (!this._pointProgress || d < this._pointProgress.d - 0.5) this._pointProgress = { d, time: this.time };
+    else if (this.time - this._pointProgress.time > 5) {
+      if (this._pointNode) this._pointTried.add(this._pointNode);
+      this._pointNode = null;
+      this._pointProgress = { d, time: this.time };
+    }
+    this._pointNode ??= this.nav.nearest(p.x, p.z, (n) => !this._pointTried.has(n) && Math.abs(n.y - (p.y ?? 0)) < 0.5 &&
+      world.walkable(n, p, p.y ?? 0, r, c.height), p.y ?? 0);
+    const direct = d < 8 && world.walkable(c.pos, p, c.pos.y, r, c.height);
+    if (direct || (this.arrivedAt === this._pointNode && d < 8)) {
+      // From here (or from the chosen waypoint) the way is clear: walk straight
+      // at it, sliding along any corner in between.
+      this._turn(c, dt, yawTo(c.pos, p), 0, 0.8);
       const mx = (p.x - c.pos.x) / d;
       const mz = (p.z - c.pos.z) / d;
       const sin = Math.sin(c.yaw);
@@ -707,7 +884,7 @@ export class BotController {
       intent.walk = d < 2; // ease in
       return false;
     }
-    this._goTo(c, dt, intent, this.nav.nearest(p.x, p.z), { walk: this._shouldWalk() });
+    this._goTo(c, dt, intent, this._pointNode, { walk: this._shouldWalk() });
     return false;
   }
 
@@ -723,7 +900,7 @@ export class BotController {
     if (this.goalNode !== node || !this.path) {
       const world = this.ctx.world;
       const from = { x: c.pos.x, y: c.pos.y + 1, z: c.pos.z };
-      const start = this.nav.nearest(c.pos.x, c.pos.z, (n) => world.lineOfSight(from, { x: n.x, y: c.pos.y + 1, z: n.z }, false));
+      const start = this.nav.nearest(c.pos.x, c.pos.z, (n) => world.lineOfSight(from, { x: n.x, y: n.y + 1, z: n.z }, false), c.pos.y);
       this.path = this.nav.path(start, node, { avoidLane }) ?? [node];
       this.pathIndex = 0;
       this._smooth(c);
@@ -751,6 +928,9 @@ export class BotController {
     let lookYaw = moveYaw;
     if (lookAt) lookYaw = yawTo(c.pos, lookAt);
     else if (this.alertTimer > 0 && this.alertYaw !== null) lookYaw = this.alertYaw;
+    else if (this.danger && Math.abs(wrap(yawTo(c.pos, this.danger) - moveYaw)) < 1.9) {
+      lookYaw = yawTo(c.pos, this.danger); // pre-aim a spot the team keeps dying to
+    }
     this._turn(c, dt, lookYaw, 0, 0.6);
 
     // Move toward the waypoint, expressed relative to where the bot faces.
@@ -795,6 +975,7 @@ export class BotController {
     const world = this.ctx.world;
     while (this.pathIndex < this.path.length - 1) {
       const next = this.path[this.pathIndex + 1];
+      if (Math.abs((next.y ?? 0) - c.pos.y) > 0.3) break; // stairs: walk them waypoint by waypoint
       if (!world.walkable(c.pos, next, c.pos.y, c.radius + 0.05, c.height)) break;
       this.pathIndex++;
     }
@@ -869,7 +1050,7 @@ export class BotController {
     for (const n of this.nav.nodes) {
       const d = dist2d(c.pos, n);
       if (d > 16 || dist2d(n, threat.pos) <= myDist) continue;
-      if (world.lineOfSight(eye, { x: n.x, y: c.pos.y + 1.4, z: n.z })) continue;
+      if (world.lineOfSight(eye, { x: n.x, y: n.y + 1.4, z: n.z })) continue;
       if (d < bestD) {
         bestD = d;
         best = n;

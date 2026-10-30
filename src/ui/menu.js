@@ -11,6 +11,7 @@ import { WEAPONS } from '../data/weapons.js';
 import { load, save } from '../core/storage.js';
 import { AGENTS, agentById } from '../data/agents.js';
 import { DRILLS, bestScores, bestKey } from '../modes/aimtrainer.js';
+import { currentRank, matchHistory } from '../game/history.js';
 import { balancedTeam } from '../modes/match.js';
 import { MAPS, mapById, randomMap } from '../data/maps/index.js';
 import { scoreboardTables } from './hud.js';
@@ -83,9 +84,10 @@ export function createMenus(app) {
     const a = agentById(agentChoice);
     const ability = (key) => {
       const x = a.abilities[key];
-      return `<div class="ability" style="--agent:${a.color}"><b><kbd>${key.toUpperCase()}</kbd>${x.name}</b>${x.about}<span class="meta">Cooldown ${x.cooldown} s${x.charges > 1 ? ` \u00b7 ${x.charges} charges` : ''}</span></div>`;
+      const meta = x.ult ? `${x.ult} ultimate points: kills, deaths, plants, defuses, and orbs` : `Cooldown ${x.cooldown} s${x.charges > 1 ? ` \u00b7 ${x.charges} charges` : ''}`;
+      return `<div class="ability${x.ult ? ' ult' : ''}" style="--agent:${a.color}"><b><kbd>${key.toUpperCase()}</kbd>${x.name}</b>${x.about.replace(/^Ultimate\. /, '')}<span class="meta">${meta}</span></div>`;
     };
-    $('agent-detail').innerHTML = ability('q') + ability('e');
+    $('agent-detail').innerHTML = ability('q') + ability('e') + (a.abilities.x ? ability('x') : '');
     $('btn-agent-play').textContent = agentTarget === 'match' ? `Play as ${a.name}` : `Go to the test range as ${a.name}`;
 
     if (agentTarget === 'match') {
@@ -112,6 +114,11 @@ export function createMenus(app) {
     for (const b of document.querySelectorAll('[data-mode-choice]')) {
       b.setAttribute('aria-checked', String(b.dataset.modeChoice === matchOptions.mode));
     }
+    $('mode-about').textContent = {
+      spike: 'Attack or defend a site with the spike. Sides swap at halftime.',
+      elimination: 'Win a round by eliminating the other team.',
+      deathmatch: `Respawn 3 s after dying. First team to ${({ 3: 25, 5: 40, 7: 50 })[matchOptions.roundsToWin] ?? 40} kills wins ("First to" sets the target). Guns are free.`,
+    }[matchOptions.mode] ?? '';
     $('map-about').textContent = matchOptions.map === 'random'
       ? 'A different map each match.'
       : mapById(matchOptions.map).about;
@@ -424,15 +431,44 @@ export function createMenus(app) {
 
   // ------------------------------------------------------------ match end
 
+  // ------------------------------------------------------------ rank and history
+
+  const MODE_NAMES = { spike: 'Plant and defuse', elimination: 'Elimination', deathmatch: 'Team deathmatch' };
+  const rankText = (r) => (r.of ? `${r.name}, ${r.into} / ${r.of} RR` : `${r.name}, ${r.into} RR`);
+  function renderRankBadge() {
+    const r = currentRank();
+    $('rank-badge').textContent = matchHistory().length ? `Rank: ${rankText(r)}` : 'Rank: play a match to get one';
+  }
+  renderRankBadge();
+  function showHistory() {
+    app.setState('history');
+    $('history-rank').textContent = `Your rank: ${rankText(currentRank())}`;
+    const list = matchHistory();
+    $('history-list').innerHTML = list.length ? list.map((h) => {
+      const result = h.draw ? 'Draw' : h.won ? 'Victory' : 'Defeat';
+      const rr = `${h.rrChange >= 0 ? '+' : ''}${h.rrChange} RR`;
+      const when = new Date(h.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      return `<li class="${h.draw ? 'draw' : h.won ? 'won' : 'lost'}"><b>${result}</b><span>${h.us} to ${h.them}</span>
+        <span>${h.map}, ${MODE_NAMES[h.mode] ?? h.mode}, ${h.difficulty}</span><span>${h.agent}: ${h.kills} / ${h.deaths} / ${h.assists}</span>
+        <em>${rr}</em><small>${when}</small></li>`;
+    }).join('') : '<li class="empty">No matches yet. Play one and it shows up here.</li>';
+  }
+  $('btn-history').addEventListener('click', showHistory);
+  $('btn-history-back').addEventListener('click', goToMenu);
+
   function showMatchEnd() {
     app.setState('matchEnd');
     input.unlock();
     const m = app.getMatch();
     const won = m.score.ally > m.score.enemy;
+    const draw = m.score.ally === m.score.enemy;
     const you = m.you;
-    $('me-title').textContent = won ? 'Victory' : 'Defeat';
+    $('me-title').textContent = draw ? 'Draw' : won ? 'Victory' : 'Defeat';
+    const rec = m.lastRecord;
+    $('me-rank').textContent = rec ? `${rec.rrChange >= 0 ? '+' : ''}${rec.rrChange} RR. Rank: ${rankText(currentRank())}` : '';
+    renderRankBadge();
     $('me-title').style.color = won ? '#8cc4ff' : '#ff8a8e';
-    $('me-score').textContent = `${m.score.ally} to ${m.score.enemy} on ${m.map.name}`;
+    $('me-score').textContent = `${m.score.ally} to ${m.score.enemy}${m.deathmatch ? ' kills' : ''} on ${m.map.name}`;
     $('me-rounds').innerHTML = m.history.map((w, i) => {
       const kind = w === 'ally' ? 'won' : w === 'enemy' ? 'lost' : 'draw';
       const label = kind === 'won' ? 'won' : kind === 'lost' ? 'lost' : 'drawn';

@@ -31,6 +31,12 @@ export const AGENTS = [
         payload: { kind: 'flash', duration: 1.75, range: 40 },
         about: 'Throw a bolt of light that pops after a moment. Enemies looking at it are blinded for up to 1.75 s. 2 charges.',
       },
+      x: {
+        name: 'Thunder', type: 'throw', ult: 7, sound: 'throw',
+        speed: 34, gravity: 0, fuse: 0.55, color: 0xfff36a,
+        payload: { kind: 'concuss', radius: 9, duration: 3.5 },
+        about: 'Ultimate. Call down a lightning strike where you aim: every enemy within 9 m is stunned for 3.5 s.',
+      },
     },
   },
   {
@@ -51,6 +57,12 @@ export const AGENTS = [
         trail: { radius: 1.0, dps: 40, duration: 4, spacing: 0.8, name: 'Blaze Trail' },
         about: 'Dash forward, leaving fire that burns enemies for 4 s.',
       },
+      x: {
+        name: 'Inferno', type: 'throw', ult: 7, sound: 'throw',
+        speed: 22, gravity: 14, fuse: 2.0, bounce: true, color: 0xff4a1a,
+        payload: { kind: 'fire', radius: 6.5, dps: 70, duration: 7 },
+        about: 'Ultimate. A huge firestorm where it lands: 70 damage a second over 6.5 m for 7 s.',
+      },
     },
   },
   {
@@ -68,6 +80,11 @@ export const AGENTS = [
         name: 'Shadow Mark', type: 'marker', cooldown: 20, sound: 'mark',
         duration: 20,
         about: 'Mark your spot. Press again within 20 s to teleport back to it.',
+      },
+      x: {
+        name: 'Night Shade', type: 'smoke', ult: 6, sound: 'smoke',
+        range: 50, radius: 9, duration: 20,
+        about: 'Ultimate. A giant cloud of shadow, 18 m across, that blocks a whole site for 20 s.',
       },
     },
   },
@@ -87,6 +104,11 @@ export const AGENTS = [
         name: 'Protect', type: 'aura', cooldown: 35, sound: 'shield',
         radius: 10, shield: 50, shieldDuration: 15, color: 0x9fd8ff,
         about: 'You and teammates within 10 m gain 50 extra shield for 15 s.',
+      },
+      x: {
+        name: 'Shell Fortress', type: 'aura', ult: 7, sound: 'shield',
+        radius: 16, shield: 100, shieldDuration: 20, color: 0x9fd8ff,
+        about: 'Ultimate. You and teammates within 16 m gain 100 extra shield for 20 s.',
       },
     },
   },
@@ -108,6 +130,12 @@ export const AGENTS = [
         payload: { kind: 'recon', radius: 30, pulses: 2, interval: 1.4, reveal: 3 },
         about: 'Throw an eye that sticks where it lands and pulses twice, revealing every enemy it can see within 30 m.',
       },
+      x: {
+        name: 'Psychic Sight', type: 'throw', ult: 7, sound: 'throw',
+        speed: 30, gravity: 7, fuse: 1.0, stick: true, color: 0xff5ad8,
+        payload: { kind: 'recon', radius: 70, pulses: 3, interval: 1.5, reveal: 4 },
+        about: 'Ultimate. A great eye that pulses three times, revealing every enemy it can see within 70 m.',
+      },
     },
   },
   {
@@ -126,6 +154,61 @@ export const AGENTS = [
         name: 'Wish', type: 'aura', cooldown: 30, sound: 'heal',
         radius: 10, heal: 60, healDuration: 3, color: 0x5ee08a,
         about: 'Heal yourself and teammates within 10 m for 60 health over 3 s.',
+      },
+      x: {
+        name: 'Lullaby', type: 'throw', ult: 7, sound: 'throw',
+        speed: 22, gravity: 9, fuse: 1.3, color: 0xffa6d8,
+        payload: { kind: 'sleep', radius: 11, duration: 4 },
+        about: 'Ultimate. A giant song bubble: every enemy within 11 m falls asleep for 4 s.',
+      },
+    },
+  },
+  {
+    id: 'lucario',
+    name: 'Lucario',
+    role: 'Duelist',
+    color: '#4f7fd6',
+    abilities: {
+      q: {
+        name: 'Extreme Speed', type: 'dash', cooldown: 14, charges: 2, sound: 'dash',
+        speed: 30, duration: 0.18,
+        about: 'A very fast, short dash in the direction you are moving. 2 charges.',
+      },
+      e: {
+        name: 'Aura Sphere', type: 'throw', cooldown: 20, sound: 'throw',
+        speed: 34, gravity: 0, fuse: 0.6, color: 0x7fb2ff,
+        payload: { kind: 'concuss', radius: 3.5, duration: 2 },
+        about: 'A fast sphere that bursts after a moment: enemies within 3.5 m are stunned for 2 s.',
+      },
+      x: {
+        name: 'Steel Will', type: 'aura', ult: 6, sound: 'shield',
+        radius: 3, shield: 75, shieldDuration: 15, heal: 50, healDuration: 2, color: 0x9fc4ff,
+        about: 'Ultimate. Heal 50 and gain 75 extra shield for 15 s (teammates right next to you too).',
+      },
+    },
+  },
+  {
+    id: 'mewtwo',
+    name: 'Mewtwo',
+    role: 'Initiator',
+    color: '#a58ad6',
+    abilities: {
+      q: {
+        name: 'Psywave', type: 'throw', cooldown: 24, sound: 'throw',
+        speed: 34, gravity: 4, fuse: 0.9, stick: true, color: 0xd08aff,
+        payload: { kind: 'recon', radius: 22, pulses: 1, interval: 1, reveal: 3 },
+        about: 'A quick scan where it lands: reveals enemies it can see within 22 m, once.',
+      },
+      e: {
+        name: 'Barrier', type: 'smoke', cooldown: 20, charges: 2, sound: 'smoke',
+        range: 25, radius: 3, duration: 10,
+        about: 'A small psychic cloud up to 25 m away that blocks vision for 10 s. 2 charges.',
+      },
+      x: {
+        name: 'Psystrike', type: 'throw', ult: 7, sound: 'throw',
+        speed: 28, gravity: 6, fuse: 1.1, color: 0xc06aff,
+        payload: { kind: 'concuss', radius: 12, duration: 3 },
+        about: 'Ultimate. A psychic blast where it lands: every enemy within 12 m is stunned for 3 s.',
       },
     },
   },

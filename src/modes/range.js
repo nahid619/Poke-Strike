@@ -40,6 +40,9 @@ export class RangeMode extends Session {
   }
 
   onTick() {
+    // The ultimate is always ready in the test range.
+    const x = this.player.abilities?.slots.x;
+    if (x) this.player.ultPoints = x.ult;
     for (let i = this.respawns.length - 1; i >= 0; i--) {
       const r = this.respawns[i];
       if (this.ctx.time < r.at) continue;

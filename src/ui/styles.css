@@ -629,7 +629,7 @@ body:not([data-mode="match"]) [data-for="match"] { display: none !important; } /
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: min(420px, 90vw);
+  width: min(720px, 94vw);
   padding: 16px 18px 12px;
   background: var(--panel);
   border-left: 4px solid var(--volt);
@@ -638,17 +638,21 @@ body:not([data-mode="match"]) [data-for="match"] { display: none !important; } /
 #buy[hidden], #buy-hint[hidden] { display: none; }
 #buy h4 { margin: 0 0 10px; font-size: 1.1rem; }
 #buy h4 small { margin-left: 8px; color: var(--ink-dim); font-weight: 600; font-size: 0.8rem; }
-#buy ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+#buy ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 #buy li {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   gap: 2px 8px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 4px;
 }
 #buy li b { font-size: 1rem; }
-#buy li span { grid-column: 2; color: var(--ink-dim); font-size: 0.82rem; }
+#buy li span { grid-column: 2 / 4; color: var(--ink-dim); font-size: 0.82rem; }
+#buy li em { grid-column: 3; grid-row: 1; font-style: normal; font-weight: 700; color: var(--volt); text-align: right; }
+#buy li.poor { opacity: 0.45; }
+#buy h4 #buy-credits { float: right; color: var(--volt); font-size: 1rem; }
+#buy #buy-note { margin: -4px 0 10px; color: var(--ink-dim); font-size: 0.82rem; min-height: 1em; }
 #buy li.on { border-color: var(--volt); background: rgba(255, 207, 58, 0.08); }
 #buy p { margin: 10px 0 0; color: var(--ink-dim); font-size: 0.8rem; }
 
@@ -1108,6 +1112,7 @@ button.link:hover { text-decoration-color: var(--volt); }
 }
 #announce.attack { color: #ff9a9d; }
 #announce.defend { color: #9fd0ff; }
+#announce.ace { color: #ffd84a; font-size: 1.6rem; letter-spacing: 0.04em; }
 #objective {
   position: fixed;
   left: 50%;
@@ -1171,3 +1176,26 @@ button.link:hover { text-decoration-color: var(--volt); }
 /* Crosshair presets: five buttons, so let them wrap. */
 .seg.presets { flex-wrap: wrap; }
 .seg.presets button { padding: 7px 10px; font-size: 0.85rem; }
+
+/* The ultimate (X): gold when ready. */
+#ab-x[hidden] { display: none; }
+#ab-x.ult[data-state="ready"] { border-color: var(--volt); box-shadow: 0 0 12px rgba(255, 207, 58, 0.45); }
+#ab-x .ab-ch { letter-spacing: 1px; font-size: 0.7rem; }
+
+/* Rank on the title screen, the results screen, and match history. */
+.rank-badge { margin: -4px 0 14px; color: var(--volt); font-weight: 700; letter-spacing: 0.02em; }
+.me-rank { margin: 4px 0 12px; color: var(--volt); font-weight: 700; }
+.history { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 6px; max-height: 60vh; overflow-y: auto; }
+.history li {
+  display: grid; grid-template-columns: 6.5rem 5rem 1fr 1fr 4.5rem 3.5rem; gap: 10px; align-items: baseline;
+  padding: 8px 12px; border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 4px; font-size: 0.9rem;
+}
+.history li.won { border-left-color: #8cc4ff; }
+.history li.lost { border-left-color: #ff8a8e; }
+.history li em { font-style: normal; font-weight: 700; text-align: right; }
+.history li small { color: var(--ink-dim); text-align: right; }
+.history li span { color: var(--ink-dim); }
+.history li.empty { display: block; color: var(--ink-dim); }
+@media (max-width: 760px) { .history li { grid-template-columns: 1fr 1fr; } }
+.agent-detail .ability.ult { grid-column: 1 / -1; }
+.agent-detail .ability.ult kbd { background: var(--volt); color: #111; }

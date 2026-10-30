@@ -14,6 +14,7 @@ export default {
   id: 'testmap',
   name: 'Test Room',
   sky: 0x9fc7e8,
+  acoustics: { time: 1.0, wet: 0.3, damping: 0.55 },
   palette: {
     floor: 0xbdb3a0,
     wall: 0xd9d3c6,

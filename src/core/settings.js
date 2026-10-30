@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS = {
   showFps: false,
   // Audio
   volume: 0.6,
+  spatialAudio: 'hrtf',    // 'hrtf' (3D, best with headphones) or 'stereo' (left/right only)
   // Crosshair
   crosshairColor: '#5ef08a',
   crosshairStyle: 'dot',   // 'dot', 'cross', 'both' (cross + dot), or 'circle' (circle + dot)
@@ -95,6 +96,7 @@ const CHOICES = {
   adsMode: ['toggle', 'hold'],
   crosshairStyle: ['cross', 'dot', 'both', 'circle'],
   botMode: ['idle', 'wander', 'fight'],
+  spatialAudio: ['hrtf', 'stereo'],
 };
 
 export function exportSettingsCode() {

@@ -85,7 +85,7 @@ export class DebugOverlay {
       for (let i = ctl.pathIndex; i < ctl.path.length && v + 2 <= max; i++) {
         const n = ctl.path[i];
         pos.setXYZ(v, px, 0.15, pz); col.setXYZ(v++, ...color);
-        pos.setXYZ(v, n.x, 0.15, n.z); col.setXYZ(v++, ...color);
+        pos.setXYZ(v, n.x, (n.y ?? 0) + 0.15, n.z); col.setXYZ(v++, ...color);
         px = n.x;
         pz = n.z;
       }
@@ -139,14 +139,14 @@ function navGraphLines(nav) {
   for (const n of nav.nodes) {
     for (const { node } of n.links) {
       if (node.id < n.id) continue; // each link once
-      points.push(n.x, 0.1, n.z, node.x, 0.1, node.z);
+      points.push(n.x, (n.y ?? 0) + 0.1, n.z, node.x, (node.y ?? 0) + 0.1, node.z);
     }
     // Hold spots: a short line toward the angle they watch.
     if (n.hold) {
       const dx = n.hold.x - n.x;
       const dz = n.hold.z - n.z;
       const len = Math.hypot(dx, dz) || 1;
-      points.push(n.x, 0.12, n.z, n.x + (dx / len) * 2.5, 0.12, n.z + (dz / len) * 2.5);
+      points.push(n.x, (n.y ?? 0) + 0.12, n.z, n.x + (dx / len) * 2.5, (n.y ?? 0) + 0.12, n.z + (dz / len) * 2.5);
     }
   }
   const geo = new THREE.BufferGeometry();

@@ -1,17 +1,16 @@
 // What bots can learn besides seeing: noises, and what their teammates saw.
 //
-// Noises: running footsteps, gunshots, and abilities. Walking (Shift) is
-// silent, so you can sneak past bots. Each noise has a radius; bots within it
-// hear it and know roughly where it came from.
+// Noises: running footsteps, landings, gunshots, and abilities. Walking
+// (Shift) is silent, so you can sneak past bots. Each noise has a radius; bots
+// within it hear it and know roughly where it came from. Footsteps come from
+// the same 'footstep' events that you hear (see game/footsteps.js).
 //
 // Team intel: when any bot spots an enemy, the whole team knows where that
 // enemy was and when. Anchors use this to rotate toward fights.
-import { MOVE } from '../game/character.js';
-
 export const NOISE = {
   footstepRadius: 22,
-  footstepEvery: 0.35, // seconds between footstep noises while running
-  shotRadius: 45,
+  landRadius: 26,      // landing from a jump is louder than a step
+  shotRadius: 45,      // (silenced guns: less than half that)
   abilityRadius: 20,
   memory: 1.0,         // how long a noise stays "fresh"
 };
@@ -21,8 +20,9 @@ export class Senses {
     this.noises = [];
     this.time = 0;
     this.intel = { ally: new TeamIntel(), enemy: new TeamIntel() };
-    events.on('shot', (s) => this.noise(s.owner, s.origin.x, s.origin.z, NOISE.shotRadius, 'shot'));
+    events.on('shot', (s) => this.noise(s.owner, s.origin.x, s.origin.z, NOISE.shotRadius * (s.weapon?.suppressed ? 0.45 : 1), 'shot'));
     events.on('abilityCast', (e) => this.noise(e.owner, e.owner.pos.x, e.owner.pos.z, NOISE.abilityRadius, 'ability'));
+    events.on('footstep', (f) => this.noise(f.who, f.x, f.z, f.kind === 'land' ? NOISE.landRadius : NOISE.footstepRadius, 'step'));
   }
 
   reset() {
@@ -35,18 +35,9 @@ export class Senses {
     this.noises.push({ source, team: source.team, x, z, radius, kind, time: this.time });
   }
 
-  /** Call once per tick with everyone; adds footsteps for anyone running. */
-  tick(dt, characters) {
+  /** Call once per tick: moves the clock and forgets old noises. */
+  tick(dt) {
     this.time += dt;
-    for (const c of characters) {
-      if (!c.isCharacter || !c.alive) continue;
-      c._stepTimer = (c._stepTimer ?? 0) - dt;
-      const speed = Math.hypot(c.vel.x, c.vel.z);
-      if (c.onGround && speed > MOVE.walkSpeed + 0.4 && c._stepTimer <= 0) {
-        c._stepTimer = NOISE.footstepEvery;
-        this.noise(c, c.pos.x, c.pos.z, NOISE.footstepRadius, 'step');
-      }
-    }
     const cutoff = this.time - NOISE.memory;
     while (this.noises.length && this.noises[0].time < cutoff) this.noises.shift();
   }

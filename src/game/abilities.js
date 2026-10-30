@@ -1,4 +1,7 @@
-// Ability system. An AbilityKit holds an agent's Q and E slots and cooldowns.
+// Ability system. An AbilityKit holds an agent's Q and E slots and cooldowns,
+// and the ultimate on X. Ultimates have no cooldown: they cost ultimate
+// points (owner.ultPoints), earned from kills, deaths, planting or defusing,
+// and ultimate orbs (see orbs.js); using one spends them all.
 // Each ability's `type` picks one of the reusable EFFECTS below; the numbers
 // come from the agent data. Works for the player now and bots later.
 import { directionFromAngles } from './weapons.js';
@@ -9,6 +12,7 @@ class Slot {
   constructor(def) {
     this.def = def;
     this.max = def.charges ?? 1;
+    this.ult = def.ult ?? 0; // ultimate: points needed (0 = a normal ability)
     this.charges = this.max;
     this.cooldown = 0;  // time until the next charge comes back
     this.marker = null; // Shadow Mark: placed marker waiting for the teleport
@@ -24,6 +28,7 @@ export class AbilityKit {
   constructor(agent) {
     this.agent = agent;
     this.slots = { q: new Slot(agent.abilities.q), e: new Slot(agent.abilities.e) };
+    if (agent.abilities.x) this.slots.x = new Slot(agent.abilities.x);
     this.cooldownScale = 1; // the test range shortens cooldowns
   }
 
@@ -36,7 +41,11 @@ export class AbilityKit {
   }
 
   /** Use up one charge and start recharging it. */
-  _spend(slot) {
+  _spend(slot, owner) {
+    if (slot.ult) {
+      owner.ultPoints = 0;
+      return;
+    }
     slot.charges = Math.max(0, slot.charges - 1);
     if (slot.cooldown <= 0) slot.cooldown = slot.def.cooldown * this.cooldownScale;
   }
@@ -51,7 +60,11 @@ export class AbilityKit {
 
   tick(dt, intent, owner, ctx) {
     for (const [key, s] of Object.entries(this.slots)) {
-      // Charges come back one at a time.
+      // Charges come back one at a time (ultimates use points instead).
+      if (s.ult) {
+        if (intent.abilityX) this.use(key, owner, ctx);
+        continue;
+      }
       if (s.charges < s.max) {
         s.cooldown -= dt;
         if (s.cooldown <= 0) {
@@ -65,7 +78,7 @@ export class AbilityKit {
       if (s.marker && ctx.time >= s.marker.until) {
         ctx.events.emit('markerEnd', { owner, marker: s.marker });
         s.marker = null;
-        this._spend(s);
+        this._spend(s, owner);
       }
       const pressed = key === 'q' ? intent.abilityQ : intent.abilityE;
       if (pressed) this.use(key, owner, ctx);
@@ -79,8 +92,8 @@ export class AbilityKit {
       ctx.events.emit('abilityDenied', { owner, key, ability: def, reason: owner.asleep ? 'asleep' : 'stunned' });
       return false;
     }
-    if (!slot.ready) {
-      ctx.events.emit('abilityDenied', { owner, key, ability: def, reason: 'cooldown' });
+    if (!slot.ready || (slot.ult && (owner.ultPoints ?? 0) < slot.ult)) {
+      ctx.events.emit('abilityDenied', { owner, key, ability: def, reason: slot.ult ? 'ultimate not ready' : 'cooldown' });
       return false;
     }
     const result = EFFECTS[def.type](owner, def, ctx, slot);
@@ -89,12 +102,21 @@ export class AbilityKit {
       return false;
     }
     ctx.events.emit('abilityCast', { owner, key, ability: def, ...(result ?? {}) });
-    if (!result?.armed) this._spend(slot);
+    if (!result?.armed) this._spend(slot, owner);
     return true;
   }
 }
 
 const DENIED = Symbol('denied');
+
+/** Add ultimate points (capped at what the ultimate costs). Returns true if it just became ready. */
+export function addUltPoints(c, n = 1) {
+  const cost = c.abilities?.slots.x?.ult;
+  if (!cost) return false;
+  const before = c.ultPoints ?? 0;
+  c.ultPoints = Math.min(cost, before + n);
+  return before < cost && c.ultPoints >= cost;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers

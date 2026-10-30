@@ -94,6 +94,63 @@ function buildPistol() {
   };
 }
 
+// The rest of the arsenal, built from the same parts.
+function buildSmg() {
+  const g = new THREE.Group();
+  g.add(part(box(0.055, 0.075, 0.3), GUN_DARK, 0, 0, -0.04));            // receiver
+  g.add(part(tube(0.011, 0.1, 10), GUN_DARK, 0, 0.005, -0.24, Math.PI / 2)); // barrel
+  const mag = part(box(0.035, 0.2, 0.05), GUN_DARK, 0, -0.13, -0.1, 0.05); // long magazine
+  g.add(mag);
+  g.add(part(box(0.045, 0.09, 0.05), GUN_MID, 0, -0.075, 0.06, -0.35));  // grip
+  g.add(part(box(0.04, 0.05, 0.14), GUN_MID, 0, -0.01, 0.17));           // folding stock
+  g.add(part(box(0.022, 0.006, 0.01), GUN_ACCENT, 0, 0.045, -0.06));     // sight
+  g.scale.setScalar(0.58);
+  return {
+    group: g, mag, magHome: mag.position.clone(),
+    hip: new THREE.Vector3(0.18, -0.18, -0.46), ads: new THREE.Vector3(0, -0.03, -0.42),
+    muzzle: new THREE.Vector3(0, 0.005, -0.3), kick: { back: 0.018, up: 0.025, side: 0.01 },
+  };
+}
+
+function buildShotgun() {
+  const g = new THREE.Group();
+  g.add(part(box(0.07, 0.09, 0.4), GUN_DARK, 0, 0, -0.05));              // receiver
+  g.add(part(tube(0.022, 0.34, 12), GUN_DARK, 0, 0.012, -0.4, Math.PI / 2)); // fat barrel
+  const mag = part(box(0.05, 0.05, 0.22), GUN_MID, 0, -0.055, -0.32);     // pump
+  g.add(mag);
+  g.add(part(box(0.05, 0.1, 0.05), GUN_MID, 0, -0.08, 0.08, -0.35));     // grip
+  g.add(part(box(0.06, 0.09, 0.2), GUN_MID, 0, -0.015, 0.25));           // stock
+  g.add(part(box(0.072, 0.012, 0.08), GUN_ACCENT, 0, 0.05, -0.02));      // stripe
+  g.scale.setScalar(0.55);
+  return {
+    group: g, mag, magHome: mag.position.clone(),
+    hip: new THREE.Vector3(0.19, -0.19, -0.5), ads: null,
+    muzzle: new THREE.Vector3(0, 0.012, -0.58), kick: { back: 0.07, up: 0.12, side: 0.02 },
+  };
+}
+
+function buildMarksman() {
+  const m = buildRifle();
+  const g = m.group;
+  g.add(part(tube(0.012, 0.16, 10), GUN_DARK, 0, 0.005, -0.64, Math.PI / 2)); // longer barrel
+  g.add(part(tube(0.018, 0.12, 12), GUN_DARK, 0, 0.07, -0.1, Math.PI / 2));  // small scope
+  g.add(part(box(0.058, 0.014, 0.12), GUN_ACCENT, 0, -0.04, -0.33));         // stripe
+  return { ...m, muzzle: new THREE.Vector3(0, 0.005, -0.72), ads: new THREE.Vector3(0, -0.062, -0.42), kick: { back: 0.04, up: 0.07, side: 0.01 } };
+}
+
+function buildCarbine() {
+  const m = buildRifle();
+  m.group.add(part(tube(0.026, 0.2, 12), GUN_MID, 0, 0.005, -0.66, Math.PI / 2)); // suppressor
+  return { ...m, muzzle: new THREE.Vector3(0, 0.005, -0.76), kick: { back: 0.025, up: 0.035, side: 0.01 } };
+}
+
+function buildSidearm(suppressed) {
+  const m = buildPistol();
+  if (suppressed) m.group.add(part(tube(0.017, 0.13, 10), GUN_MID, 0, 0.002, -0.19, Math.PI / 2));
+  else m.group.scale.setScalar(0.62);
+  return { ...m, muzzle: new THREE.Vector3(0, 0, suppressed ? -0.24 : -0.12) };
+}
+
 /** A damped spring toward 0. */
 class Spring {
   constructor(stiffness = 220, damping = 0.75) {
@@ -132,7 +189,10 @@ export class Viewmodel {
     this.root = new THREE.Group(); // bob, sway, and animations move this
     this.scene.add(this.root);
 
-    this.models = { rifle: buildRifle(), sniper: buildSniper(), pistol: buildPistol() };
+    this.models = {
+      rifle: buildRifle(), sniper: buildSniper(), pistol: buildPistol(), smg: buildSmg(), shotgun: buildShotgun(),
+      marksman: buildMarksman(), carbine: buildCarbine(), sidearm: buildSidearm(false), lightpistol: buildSidearm(true),
+    };
     for (const m of Object.values(this.models)) {
       m.group.visible = false;
       m.group.position.copy(m.hip);

@@ -82,11 +82,12 @@
       </div>
       <div id="hurt"><i></i></div>
 
-      <div id="buy-hint" hidden><kbd>B</kbd> Buy a weapon</div>
+      <div id="buy-hint" hidden><kbd>B</kbd> <span id="buy-hint-text">Buy</span></div>
       <div id="buy" hidden>
-        <h4>Buy <small>press a number</small></h4>
+        <h4>Buy <small>press a number</small><span id="buy-credits"></span></h4>
+        <p id="buy-note"></p>
         <ol id="buy-list"></ol>
-        <p><kbd>B</kbd> close</p>
+        <p><kbd>B</kbd> close. Survive the round to keep what you bought.</p>
       </div>
 
       <div id="hud-abilities" hidden>
@@ -97,6 +98,10 @@
         <div class="ab" id="ab-e" data-state="ready">
           <i class="ab-fill" id="ab-e-fill"></i>
           <kbd>E</kbd><span class="ab-name" id="ab-e-name"></span><span class="ab-ch" id="ab-e-ch"></span><span class="ab-cd" id="ab-e-cd"></span>
+        </div>
+        <div class="ab ult" id="ab-x" data-state="cooling">
+          <i class="ab-fill" id="ab-x-fill"></i>
+          <kbd>X</kbd><span class="ab-name" id="ab-x-name"></span><span class="ab-ch" id="ab-x-ch"></span><span class="ab-cd" id="ab-x-cd"></span>
         </div>
       </div>
 
@@ -133,6 +138,7 @@
       <section class="card title-card" data-card="menu">
         <h1 class="wordmark">Poké Strike</h1>
         <p class="sub">A tactical shooter against bots, right in your browser.</p>
+        <p class="rank-badge" id="rank-badge"></p>
         <nav class="menu-list" aria-label="Main menu">
           <button id="btn-match" class="primary" type="button"><b>Play a match</b><span>5v5 against bots</span></button>
           <button id="btn-trainer" type="button"><b>Aim trainer</b><span>30-second drills with saved best scores</span></button>
@@ -141,15 +147,26 @@
         <div class="menu-foot">
           <button id="btn-settings" class="link" type="button">Settings</button>
           <button id="btn-controls" class="link" type="button">Controls</button>
+          <button id="btn-history" class="link" type="button">Match history</button>
         </div>
         <p class="note" id="touch-note" hidden>This game needs a keyboard and mouse. On a phone or tablet you can look around the menus, but you won't be able to play.</p>
         <p class="fine">Unofficial fan project. Not affiliated with Nintendo or The Pokémon Company.</p>
       </section>
 
+      <!-- Match history and rank -->
+      <section class="card wide tall" data-card="history">
+        <h2>Match history</h2>
+        <p class="sub" id="history-rank"></p>
+        <ol id="history-list" class="history"></ol>
+        <div class="stack">
+          <button id="btn-history-back" type="button">Back</button>
+        </div>
+      </section>
+
       <!-- Agent select (before a match or the test range) -->
       <section class="card wide tall" data-card="agents" id="card-agents">
         <h2>Choose your agent</h2>
-        <p class="sub">Each agent has two abilities on Q and E.</p>
+        <p class="sub">Each agent has two abilities on Q and E, and an ultimate on X.</p>
         <div class="agents-layout">
         <div class="agents-main">
           <div id="agent-grid" class="agents" role="radiogroup" aria-label="Agent"></div>
@@ -170,7 +187,9 @@
             <div class="seg" role="radiogroup" aria-label="Mode">
               <button type="button" role="radio" data-mode-choice="spike">Plant and defuse</button>
               <button type="button" role="radio" data-mode-choice="elimination">Elimination</button>
+              <button type="button" role="radio" data-mode-choice="deathmatch">Team deathmatch</button>
             </div>
+            <span class="hint" id="mode-about"></span>
           </div>
           <div class="field-row">
             <div class="field">
@@ -280,6 +299,14 @@
               <span>Volume <output data-out="volume"></output></span>
               <input data-setting="volume" type="range" min="0" max="1" step="0.01" />
             </label>
+            <div class="field">
+              <span class="label">Sound positioning</span>
+              <div class="seg" role="radiogroup" aria-label="Sound positioning">
+                <button type="button" role="radio" data-choice="spatialAudio" data-value="hrtf">3D</button>
+                <button type="button" role="radio" data-choice="spatialAudio" data-value="stereo">Stereo</button>
+              </div>
+              <span class="hint">3D lets you hear if a sound is in front, behind, or above you. Use it with headphones; pick Stereo for speakers.</span>
+            </div>
             <div class="field">
               <span class="label">Graphics quality</span>
               <div class="seg" role="radiogroup" aria-label="Graphics quality">
@@ -468,6 +495,7 @@
         </div>
         <ol id="me-rounds" class="round-strip" aria-label="Rounds"></ol>
         <p id="me-mvp" class="sub"></p>
+        <p id="me-rank" class="me-rank"></p>
         <dl class="r-stats me-you">
           <dt>Your kills</dt><dd id="me-kills">0</dd>
           <dt>Deaths</dt><dd id="me-deaths">0</dd>

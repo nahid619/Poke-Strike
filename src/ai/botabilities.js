@@ -84,14 +84,14 @@ export function botAbilities(ctl, c, dt, intent) {
   if (ctl.abilityClock > 0) return;
   ctl.abilityClock = CHECK_EVERY;
 
-  for (const key of ['q', 'e']) {
+  for (const key of ['x', 'q', 'e']) {
     const slot = kit.slots[key];
-    if (!slot.ready) continue;
+    if (!slot || !slot.ready || (slot.ult && (c.ultPoints ?? 0) < slot.ult)) continue;
     const plan = decide(ctl, c, slot, intent);
     if (!plan) continue;
     if (Math.random() > (ctl.skill.abilityUse ?? 1)) continue;
     plan(); // aim or steer for the cast
-    intent[key === 'q' ? 'abilityQ' : 'abilityE'] = true;
+    intent[{ q: 'abilityQ', e: 'abilityE', x: 'abilityX' }[key]] = true;
     ctl.lastCast = { key, name: slot.def.name, time: ctl.time };
     return;
   }
@@ -107,6 +107,10 @@ function decide(ctl, c, slot, intent) {
   const entering = ctl.state === STATE.PUSH && ctl.pauseTimer > 0;
   const heardRecently = ctl.time - ctl.heardEnemyAt < 2;
   const intel = ctl.ctx.ai?.senses.intel[c.team].latest(ctl.time, 4);
+  // A spot the team keeps dying to just came into view (see tactics.js): utility it.
+  const adapt = ctl.skill.adapt ?? 0;
+  const danger = adapt > 0 && !sees && ctl.danger && ctl.time - ctl.dangerSince < 1.2 &&
+    (adapt >= 2 || entering || ctl.state === STATE.HOLD) ? ctl.danger : null;
   const none = () => {};
 
   switch (a.type) {
@@ -121,6 +125,7 @@ function decide(ctl, c, slot, intent) {
         }
         // Flash ahead before stepping out of a choke toward known enemies.
         if (!sees && entering && intel && dist2d(intel, c.pos) < 25) return () => aimAt(c, intel, c.pos.y + 2);
+        if (danger && dist2d(danger, c.pos) < 25) return () => aimAt(c, danger, danger.y + 0.6);
         return null;
       }
 
@@ -146,12 +151,15 @@ function decide(ctl, c, slot, intent) {
         if (!sees && entering && intel && dist2d(intel, c.pos) < Math.min(18, reach * 0.9)) {
           return () => aimThrow(c, { x: intel.x, y: c.pos.y, z: intel.z }, a, 1);
         }
+        if (danger && dist2d(danger, c.pos) < Math.min(18, reach * 0.9)) {
+          return () => aimThrow(c, { x: danger.x, y: c.pos.y, z: danger.z }, a, 1);
+        }
         return null;
       }
 
       if (p.kind === 'recon') {
-        if (sees || !(entering || heardRecently)) return null;
-        let goal = intel && dist2d(intel, c.pos) < reach ? intel : null;
+        if (sees || !(entering || heardRecently || danger)) return null;
+        let goal = danger && dist2d(danger, c.pos) < reach ? danger : intel && dist2d(intel, c.pos) < reach ? intel : null;
         if (!goal) {
           const route = ctl.orders?.route;
           goal = route?.[(ctl.routeIndex ?? 0) + 1] ?? null;
@@ -275,6 +283,9 @@ function decide(ctl, c, slot, intent) {
 
     case 'smoke': {
       // Before pushing through a choke: smoke the known enemy, or the next node ahead.
+      if (danger && dist2d(danger, c.pos) < a.range && dist2d(danger, c.pos) > a.radius + 2) {
+        return () => aimAt(c, danger, 1.0); // smoke off the angle they keep killing us from
+      }
       if (sees || ctl.state !== STATE.PUSH || ctl.pauseTimer <= 0) {
         // Covering a retreat: smoke between yourself and the threat.
         if (ctl.state === STATE.RETREAT && ctl.lastSeen) {
